@@ -151,12 +151,19 @@ brew install python@3.10
 # Install tkinter package (required for the GUI)
 brew install python-tk@3.10
 
+# Get the repository
+git clone https://github.com/piotrmirowski/Deep-Live-Cam.git
+cd Deep-Live-Cam
+
+# Upgrade pip
+python3.10 -m pip install --upgrade pip
+
 # Create and activate virtual environment with Python 3.10
 python3.10 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt
+python3.10 -m pip install -r requirements.txt
 ```
 
 ** In case something goes wrong and you need to reinstall the virtual environment **
