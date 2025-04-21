@@ -61,10 +61,6 @@ Users are expected to use this software responsibly and legally. If using a real
 
 **Watch movies with any face in real-time**
 
-<p align="center">
-  <img src="media/movie.gif" alt="movie">
-</p>
-
 ### Live Show
 
 **Run Live shows and performances**
