@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html class="js consumer build-stable chrome win64-incapable mac twisty-js" lang="en" id="mac">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta content="initial-scale=1, minimum-scale=1, width=device-width" name="viewport">
+    <title>
+      Remote deep fake server for Improbotics
+    </title>
+    <style>
+      /* Body of page */
+      body {
+        height: 100%;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        background-color: black;
+        overflow: hidden;
+      }
+      /* Command buttons */
+      .command {
+        background-color: #000;
+        color: #888888;
+        float: left;
+        border: none;
+        outline: none;
+        cursor: pointer;
+        padding: 0px 0px;
+        font-size: 32px;
+        width: 33%;
+        transition: all ease-in-out 0.2s;
+      }
+      .command:hover {
+        background-color: #222222;
+      }
+
+    </style>
+    <style>
+      a.c1 {font-weight: normal;}
+    </style>
+    <style type="text/css">
+      #::-webkit-scrollbar { display: none; }
+    </style>
+  </head>
+
+<script>
+
+
+// Callback for sending a command to the server
+function sendCommand(cmd) {
+  var xmlHttp = new XMLHttpRequest();
+  var url = "http://localhost:8001" + "/" + cmd;
+  xmlHttp.open("GET", url, true);
+  xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+  xmlHttp.send(null);
+};
+
+
+
+</script>
+
+  <body class="" id="grid">
+
+    <button class="command" onclick="sendCommand('click')" align="center">Take picture</button>
+    <button class="command" onclick="sendCommand('active')" align="center">Deep Fake On</button>
+    <button class="command" onclick="sendCommand('inactive')" align="center">Deep Fake Off</button>
+    <center>
+      <iframe  style="visibility: visible;" id="source" width="1280px" height="720px" onload="resizeIframe(this);" src="http://localhost:8001/source"></iframe>
+    </center>
+
+  </body>
+</html>

@@ -1,5 +1,7 @@
 --extra-index-url https://download.pytorch.org/whl/cu118
 
+Flask
+Flask-CORS
 numpy>=1.23.5,<2
 typing-extensions>=4.8.0
 opencv-python==4.10.0.84

@@ -11,6 +11,7 @@ tf_env/
 *.mp4
 *.mkv
 
+.DS_Store
 .tmp/
 temp/
 .venv/
@@ -25,3 +26,5 @@ models/DMDNet.pth
 faceswap/
 .vscode/
 switch_states.json
+ffmpeg
+images/
