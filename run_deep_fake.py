@@ -57,7 +57,7 @@ class FaceSwapper(object):
     # Current image and deepfake storage
     self.source_image = {"image": None, "annotated_image": None, "timestamp": 0}
     self.current_camera = {"image": None, "byte_string": None, "timestamp": 0}
-    self.current_deepfake = {"image": None, "byte_string":None, "timestamp": 0, "active": True}
+    self.current_deepfake = {"image": None, "byte_string":None, "timestamp": 0, "active": False}
 
     # Start the camera.
     self._cap = cv2.VideoCapture(self._device)  # Use index for the webcam (adjust the index accordingly if necessary)    
@@ -87,7 +87,7 @@ class FaceSwapper(object):
     modules.globals.keep_fps = False
     modules.globals.keep_audio = False
     modules.globals.keep_frames = False
-    modules.globals.many_faces = True
+    modules.globals.many_faces = False
     modules.globals.video_encoder = "libx264"
     modules.globals.video_quality = 18
     modules.globals.max_memory = opts.max_memory
@@ -138,9 +138,9 @@ class FaceSwapper(object):
 
   def capture_source_image_from_camera(self) -> None:
     """Capture the source image from the camera."""
-    if current_camera["image"] is not None:
+    if self.current_camera["image"] is not None:
       log(f"Capturing camera image, storing in {self._camera_image_path}...", "source")
-      cv2_image = current_camera["image"].copy()
+      cv2_image = self.current_camera["image"].copy()
       self._store_source_image(cv2_image)
       cv2.imwrite(self._camera_image_path, cv2_image)
 
@@ -281,12 +281,28 @@ def run_flask(face_swapper, opts):
       raise e
 
 
-  @app.route("/ui")
+  @app.route("/")
   @cross_origin(supports_credentials=True)
-  def ui():
+  def index():
     with open("templates/index.html", "r") as f:
       html_ui = f.read()
     return html_ui
+
+
+  @app.route("/ui")
+  @cross_origin(supports_credentials=True)
+  def ui():
+    with open("templates/ui.html", "r") as f:
+      html_ui = f.read()
+    return html_ui
+
+
+  @app.route('/<filename>.js')
+  @cross_origin(supports_credentials=True)
+  def return_js(filename):
+    """Function for returning Javascript."""
+    filename = './templates/' + filename + '.js'
+    return flask.send_file(filename, download_name=filename, mimetype='text/javascript')
 
 
   @app.route("/copy")
@@ -321,6 +337,22 @@ def run_flask(face_swapper, opts):
     return str("inactive")
 
 
+  @app.route("/many_faces")
+  @cross_origin(supports_credentials=True)
+  def many_faces():
+    nonlocal face_swapper
+    face_swapper.many_faces(True)
+    return str("many_faces")
+
+
+  @app.route("/single_face")
+  @cross_origin(supports_credentials=True)
+  def single_face():
+    nonlocal face_swapper
+    face_swapper.many_faces(False)
+    return str("single_face")
+
+
   @app.route("/source")
   @cross_origin(supports_credentials=True)
   def source():
@@ -329,10 +361,9 @@ def run_flask(face_swapper, opts):
                           mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
-  @app.route("/")
+  @app.route("/stream")
   @cross_origin(supports_credentials=True)
   def stream():
-    print("STREAM")
     nonlocal face_swapper
     return flask.Response(deepfake_stream(face_swapper),
                           mimetype='multipart/x-mixed-replace; boundary=frame')

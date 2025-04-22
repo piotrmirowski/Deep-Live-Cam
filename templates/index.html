@@ -17,22 +17,6 @@
         background-color: black;
         overflow: hidden;
       }
-      /* Command buttons */
-      .command {
-        background-color: #000;
-        color: #888888;
-        float: left;
-        border: none;
-        outline: none;
-        cursor: pointer;
-        padding: 0px 0px;
-        font-size: 32px;
-        width: 33%;
-        transition: all ease-in-out 0.2s;
-      }
-      .command:hover {
-        background-color: #222222;
-      }
 
     </style>
     <style>
@@ -43,30 +27,28 @@
     </style>
   </head>
 
+  <body class="" id="grid">
+
+    <div id="div_stream">
+      <img id="stream" width=100% src="/stream">
+    </div>
+
+  </body>
+
+<script src="./socket.io.js" crossorigin="anonymous"></script>
 <script>
 
 
-// Callback for sending a command to the server
-function sendCommand(cmd) {
-  var xmlHttp = new XMLHttpRequest();
-  var url = "http://localhost:8001" + "/" + cmd;
-  xmlHttp.open("GET", url, true);
-  xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-  xmlHttp.send(null);
-};
-
+// Establish socket with server
+var url_server = window.location.origin;
+console.log("Attempting socket connection with:", url_server);
+var socket = io.connect(url_server);
+socket.on('connect', function() {
+  url_server = window.location.origin;
+  console.log("Connection has been succesfully established with socket.", url_server, socket.connected);
+  document.getElementById("stream").src = "/stream";
+});
 
 
 </script>
-
-  <body class="" id="grid">
-
-    <button class="command" onclick="sendCommand('click')" align="center">Take picture</button>
-    <button class="command" onclick="sendCommand('active')" align="center">Deep Fake On</button>
-    <button class="command" onclick="sendCommand('inactive')" align="center">Deep Fake Off</button>
-    <center>
-      <iframe  style="visibility: visible;" id="source" width="1280px" height="720px" onload="resizeIframe(this);" src="http://localhost:8001/source"></iframe>
-    </center>
-
-  </body>
 </html>

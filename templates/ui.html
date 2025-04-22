@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html class="js consumer build-stable chrome win64-incapable mac twisty-js" lang="en" id="mac">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta content="initial-scale=1, minimum-scale=1, width=device-width" name="viewport">
+    <title>
+      Remote deep fake server for Improbotics
+    </title>
+    <style>
+      /* Body of page */
+      body {
+        height: 100%;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        background-color: black;
+        overflow: hidden;
+      }
+      /* Command buttons */
+      .command {
+        background-color: #000;
+        color: #888888;
+        float: left;
+        border: none;
+        outline: none;
+        cursor: pointer;
+        padding: 0px 0px;
+        font-size: 24px;
+        width: 160px;
+        height: 40px;
+        transition: all ease-in-out 0.2s;
+      }
+      .command:hover {
+        background-color: #222222;
+      }
+      /* Slider */
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 62px;
+        height: 34px;
+      }
+      .switch input { 
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        -webkit-transition: .4s;
+        transition: .4s;
+      }
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 26px;
+        width: 26px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        -webkit-transition: .4s;
+        transition: .4s;
+      }
+      input:checked + .slider {
+        background-color: #aa0000;
+      }
+      input:focus + .slider {
+        box-shadow: 0 0 1px #aa0000;
+      }
+      input:checked + .slider:before {
+        -webkit-transform: translateX(26px);
+        -ms-transform: translateX(26px);
+        transform: translateX(26px);
+      }
+      .slider.round {
+        border-radius: 34px;
+      }
+      .slider.round:before {
+        border-radius: 50%;
+      }
+      .caption {
+        align-content: : center;
+        border: 0px solid #ddd;
+        background-color: transparent;
+        color: #888888;
+        font-family: Arial;
+        font-size: 16px;
+        text-align: center;
+        width: 64px;
+        max-width: 64px;
+        height: 40px;
+        transition: all ease-in-out 0.2s;
+      }
+      .caption:hover {
+        background-color: #222222;
+        opacity: 0.75;
+        color: #aaaaaa;
+      }
+
+    </style>
+    <style>
+      a.c1 {font-weight: normal;}
+    </style>
+    <style type="text/css">
+      #::-webkit-scrollbar { display: none; }
+    </style>
+  </head>
+
+  <body class="" id="grid">
+
+    <div id="div_ui">
+      <table align="left">
+        <tr>
+          <td>
+            <label class="switch">
+              <input type="checkbox" id="running_button" width=96px onclick="toggleRunning()">
+              <span class="slider round"></span>
+            </label>
+          </td>
+          <td align="left" width=96px>
+            <label class="caption" id="running_button_state" align="left">
+              Paused
+            </label>
+          </td>
+          <td>
+            <label class="switch">
+              <input type="checkbox" id="many_faces_button" width=96px onclick="toggleManyFaces()">
+              <span class="slider round"></span>
+            </label>
+          </td>
+          <td align="left" width=96px>
+            <label class="caption" id="many_faces_button_state" align="left">
+              Single face
+            </label>
+          </td>
+        </tr>
+      </table>
+
+      <button class="command" onclick="sendGetQuery('click')" align="center">Take picture</button>
+      <center>
+        <iframe  style="visibility: visible;" id="source" width=1200px height=800px onload="resizeIframe(this);" src="/source"></iframe>
+      </center>
+    </div>
+
+  </body>
+
+<script src="./socket.io.js" crossorigin="anonymous"></script>
+<script>
+
+
+// Toggle for paused / running
+function switchRunning(force = false) {
+  if ((force == true) || (running_button.checked == false)) {
+    sendGetQuery("active");
+    showRunning();
+  }
+};
+function switchPaused(force = false) {
+  if ((force == true) || (running_button.checked == true)) {
+    sendGetQuery("inactive");
+    showPaused();
+  }
+};
+// Toggle for pause
+function showPaused() {
+  if (running_button.checked == true) {
+    running_button.checked = false;
+  }
+  const caption = document.getElementById('running_button_state');
+  if (caption.innerText != "Paused") {
+    caption.innerText = "Paused";
+  }
+};
+function showRunning() {
+  if (running_button.checked == false) {
+    running_button.checked = true;
+  }
+  const caption = document.getElementById('running_button_state');
+  if (caption.innerText != "Running") {
+    caption.innerText = "Running";
+  }
+};
+function toggleRunning() {
+  if (running_button.checked == true) {
+    switchRunning(true);
+  } else {
+    switchPaused(true);
+  }
+};
+
+
+// Toggle for paused / running
+function switchManyFaces(force = false) {
+  if ((force == true) || (many_faces_button.checked == false)) {
+    sendGetQuery("many_faces");
+    showManyFaces();
+  }
+};
+function switchSingleFace(force = false) {
+  if ((force == true) || (many_faces_button.checked == true)) {
+    sendGetQuery("single_face");
+    showSingleFace();
+  }
+};
+// Toggle for pause
+function showSingleFace() {
+  if (many_faces_button.checked == true) {
+    many_faces_button.checked = false;
+  }
+  const caption = document.getElementById('many_faces_button_state');
+  if (caption.innerText != "Single face") {
+    caption.innerText = "Single face";
+  }
+};
+function showManyFaces() {
+  if (many_faces_button.checked == false) {
+    many_faces_button.checked = true;
+  }
+  const caption = document.getElementById('many_faces_button_state');
+  if (caption.innerText != "Many faces") {
+    caption.innerText = "Many faces";
+  }
+};
+function toggleManyFaces() {
+  if (many_faces_button.checked == true) {
+    switchManyFaces(true);
+  } else {
+    switchSingleFace(true);
+  }
+};
+
+
+// Callback for sending a command to the server
+function sendGetQuery(cmd) {
+  var xmlHttp = new XMLHttpRequest();
+  xmlHttp.open("GET", url_server + "/" + cmd, true);
+  xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+  xmlHttp.send(null);
+};
+
+
+// Establish socket with server
+var url_server = window.location.origin;
+console.log("Attempting socket connection with:", url_server);
+var socket = io.connect(url_server);
+socket.on('connect', function() {
+  url_server = window.location.origin;
+  console.log("Connection has been succesfully established with socket.", url_server, socket.connected);
+});
+
+
+// Regularly query the socket
+setInterval(() => {
+  socket.emit('status', {});
+}, 100);
+
+
+// Callback for the status update
+socket.on('status-update', function(status){
+  if ("active" in status) {
+    if (status["active"] == true) {
+      switchRunning(false);
+    } else {
+      switchPaused(false);
+    }
+  }
+  if ("many_faces" in status) {
+    if (status["many_faces"] == true) {
+      switchManyFaces(false);
+    } else {
+      switchSingleFace(false);
+    }
+  }
+});
+
+
+</script>
+</html>
