@@ -3,7 +3,10 @@
 import argparse
 import flask
 from flask_cors import CORS, cross_origin
+from flask_socketio import SocketIO, emit
 import io
+import logging
+import socket
 import time
 import threading
 
@@ -20,6 +23,7 @@ from modules.processors.frame.core import get_frame_processors_modules
 
 parser = argparse.ArgumentParser(description='Deep Fake server')
 parser.add_argument('-s', '--source', help='select an source image', dest='source_path')
+parser.add_argument('--port', help='Port', dest='port', type=int, default=8001)
 parser.add_argument('--temporary_image', help='temporary camera image', dest='camera_image_path',
                     default='images/temp.jpg')
 parser.add_argument('--device', help='webcam device', dest='device',
@@ -32,7 +36,7 @@ parser.add_argument('--max-memory', help='maximum amount of RAM in GB', dest='ma
                     type=int, default=core.suggest_max_memory())
 parser.add_argument('--execution-provider', help='execution provider', dest='execution_provider',
                     default=['coreml'], choices=core.suggest_execution_providers(), nargs='+')
-args = parser.parse_args()
+opts = parser.parse_args()
 
 
 def log(msg: str, msg_type: str) -> None:
@@ -42,7 +46,7 @@ def log(msg: str, msg_type: str) -> None:
 def setup() -> None:
   """Set up the face-swapper."""
 
-  modules.globals.source_path = args.source_path
+  modules.globals.source_path = opts.source_path
   modules.globals.target_path = None
   modules.globals.output_path = None
   modules.globals.frame_processors = ["face_swapper"]
@@ -53,8 +57,8 @@ def setup() -> None:
   modules.globals.many_faces = True
   modules.globals.video_encoder = "libx264"
   modules.globals.video_quality = 18
-  modules.globals.max_memory = args.max_memory
-  modules.globals.execution_providers = core.decode_execution_providers(args.execution_provider)
+  modules.globals.max_memory = opts.max_memory
+  modules.globals.execution_providers = core.decode_execution_providers(opts.execution_provider)
   modules.globals.execution_threads = 8
   modules.globals.fp_ui['face_enhancer'] = False
   modules.globals.nsfw = False
@@ -81,8 +85,8 @@ def copy_from_alt_temp_file() -> None:
   source_image["annotated_image"] = get_one_face(cv2_image)
   source_image["byte_string"] = write_numpy_to_byte_string(source_image["image"])
   source_image["timestamp"] = time.time()
-  log(f"Temporary image saved to {args.camera_image_path}...", "source")
-  cv2.imwrite(args.camera_image_path, cv2_image)
+  log(f"Temporary image saved to {opts.camera_image_path}...", "source")
+  cv2.imwrite(opts.camera_image_path, cv2_image)
 
 
 def capture_source_image_from_camera() -> None:
@@ -95,8 +99,8 @@ def capture_source_image_from_camera() -> None:
     source_image["annotated_image"] = get_one_face(cv2_image)
     source_image["byte_string"] = write_numpy_to_byte_string(source_image["image"])
     source_image["timestamp"] = time.time()
-    log(f"Temporary image saved to {args.camera_image_path}...", "source")
-    cv2.imwrite(args.camera_image_path, cv2_image)
+    log(f"Temporary image saved to {opts.camera_image_path}...", "source")
+    cv2.imwrite(opts.camera_image_path, cv2_image)
 
 
 def load_source_image_from_file() -> None:
@@ -137,12 +141,12 @@ def run_deep_fake_loop() -> None:
   """Run the deep fake loop."""
 
   # Start the camera.
-  cap = cv2.VideoCapture(args.device)  # Use index for the webcam (adjust the index accordingly if necessary)    
-  cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)  # Set the width of the resolution
-  cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)  # Set the height of the resolution
+  cap = cv2.VideoCapture(opts.device)  # Use index for the webcam (adjust the index accordingly if necessary)    
+  cap.set(cv2.CAP_PROP_FRAME_WIDTH, opts.width)  # Set the width of the resolution
+  cap.set(cv2.CAP_PROP_FRAME_HEIGHT, opts.height)  # Set the height of the resolution
   cap.set(cv2.CAP_PROP_FPS, 60)  # Set the frame rate of the webcam
-  PREVIEW_MAX_WIDTH = args.width
-  PREVIEW_MAX_HEIGHT = args.height
+  PREVIEW_MAX_WIDTH = opts.width
+  PREVIEW_MAX_HEIGHT = opts.height
 
   # Use the tempoerary face image saved by default.
   load_source_image_from_file()
@@ -225,61 +229,98 @@ def deepfake_stream():
         time.sleep(0.001)
 
 
-# Define the app, and wrap it in CORS handler.
-app = flask.Flask(__name__)
-CORS(app, support_credentials=True)
+def run_flask(ai_narrator, opts):
+  """Define the app, and wrap it in CORS handler and in socketio."""
+  log(f"Running Flask app with {opts}", "flask")
+
+  # Start a Flask app.
+  app = flask.Flask(__name__, template_folder="templates")
+  app.config["APPLICATION_ROOT"] = "/"
+  app.config["TEMPLATES_AUTO_RELOAD"] = True
+  app.config["PREFERRED_URL_SCHEME"] = 'http'
+  CORS(app, support_credentials=True)
+
+  # Wrap the app in a socketIO.
+  socketio = SocketIO(app, cors_allowed_origins="*", aync_mode="eventlet")
+  logging.getLogger('werkzeug').disabled = True
 
 
-@app.route("/ui")
-@cross_origin(supports_credentials=True)
-def ui():
-  with open("templates/index.html", "r") as f:
-    html_ui = f.read()
-  return html_ui
+  @socketio.on('connect')
+  def connect():
+    logging.info('Client connected from %s', flask.request.remote_addr)
 
 
-@app.route("/copy")
-@cross_origin(supports_credentials=True)
-def copy():
-  copy_from_alt_temp_file()
-  return str(source_image["timestamp"])
+  @socketio.on('disconnect')
+  def disconnect():
+    logging.info('Client %s disconnected', flask.request.remote_addr)
 
 
-@app.route("/click")
-@cross_origin(supports_credentials=True)
-def click():
-  capture_source_image_from_camera()
-  return str(source_image["timestamp"])
+  @socketio.on('status')
+  def status(data):
+    """Callback for the socketIO returning the current state of narration.""" 
+    nonlocal ai_narrator
+    try:
+      socketio.emit('status-update', ai_narrator.status())
+      pass
+    except Exception as e:
+      logging.error(f"Error emitting stream status: {e}")
+      raise e
 
 
-@app.route("/active")
-@cross_origin(supports_credentials=True)
-def active():
-  current_deepfake["active"] = True
-  return str("active")
+  @app.route("/ui")
+  @cross_origin(supports_credentials=True)
+  def ui():
+    with open("templates/index.html", "r") as f:
+      html_ui = f.read()
+    return html_ui
 
 
-@app.route("/inactive")
-@cross_origin(supports_credentials=True)
-def inactive():
-  current_deepfake["active"] = False
-  return str("inactive")
+  @app.route("/copy")
+  @cross_origin(supports_credentials=True)
+  def copy():
+    copy_from_alt_temp_file()
+    return str(source_image["timestamp"])
 
 
-@app.route("/source")
-@cross_origin(supports_credentials=True)
-def source():
-  return flask.Response(source_stream(),
-                        mimetype='multipart/x-mixed-replace; boundary=frame')
+  @app.route("/click")
+  @cross_origin(supports_credentials=True)
+  def click():
+    capture_source_image_from_camera()
+    return str(source_image["timestamp"])
 
 
-@app.route("/")
-@cross_origin(supports_credentials=True)
-def stream():
-  return flask.Response(deepfake_stream(),
-                        mimetype='multipart/x-mixed-replace; boundary=frame')
+  @app.route("/active")
+  @cross_origin(supports_credentials=True)
+  def active():
+    current_deepfake["active"] = True
+    return str("active")
+
+
+  @app.route("/inactive")
+  @cross_origin(supports_credentials=True)
+  def inactive():
+    current_deepfake["active"] = False
+    return str("inactive")
+
+
+  @app.route("/source")
+  @cross_origin(supports_credentials=True)
+  def source():
+    return flask.Response(source_stream(),
+                          mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+  @app.route("/")
+  @cross_origin(supports_credentials=True)
+  def stream():
+    return flask.Response(deepfake_stream(),
+                          mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+  # Start the Flask app with GET, POST and sockets, in client-agnostic mode.
+  socketio.run(app, host='0.0.0.0', port=opts.port, debug=False, use_reloader=False)
 
 
 if __name__ == '__main__':
   setup()
-  app.run('0.0.0.0', port=8001)
+  run_flask(None, opts)
