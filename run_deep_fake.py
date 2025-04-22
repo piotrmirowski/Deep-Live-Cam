@@ -43,160 +43,174 @@ def log(msg: str, msg_type: str) -> None:
   print(f"[{msg_type}] {msg}")
 
 
-def setup() -> None:
-  """Set up the face-swapper."""
+class FaceSwapper(object):
 
-  modules.globals.source_path = opts.source_path
-  modules.globals.target_path = None
-  modules.globals.output_path = None
-  modules.globals.frame_processors = ["face_swapper"]
-  modules.globals.headless = None
-  modules.globals.keep_fps = False
-  modules.globals.keep_audio = False
-  modules.globals.keep_frames = False
-  modules.globals.many_faces = True
-  modules.globals.video_encoder = "libx264"
-  modules.globals.video_quality = 18
-  modules.globals.max_memory = opts.max_memory
-  modules.globals.execution_providers = core.decode_execution_providers(opts.execution_provider)
-  modules.globals.execution_threads = 8
-  modules.globals.fp_ui['face_enhancer'] = False
-  modules.globals.nsfw = False
+  def __init__(self, opts):
+    # Initialise the parameters
+    self._camera_image_path = opts.camera_image_path
+    self._source_path = opts.source_path
+    self._device = opts.device
+    self._width = opts.width
+    self._height = opts.height
+    self._init(opts)
 
-  frame_processors = get_frame_processors_modules(modules.globals.frame_processors)
-  for frame_processor in frame_processors:
-    if not frame_processor.pre_check():
-      log("Could not pre-check frame_processor", "error")
-      return
-  core.limit_resources()
+    # Current image and deepfake storage
+    self.source_image = {"image": None, "annotated_image": None, "timestamp": 0}
+    self.current_camera = {"image": None, "byte_string": None, "timestamp": 0}
+    self.current_deepfake = {"image": None, "byte_string":None, "timestamp": 0, "active": True}
 
+    # Start the camera.
+    self._cap = cv2.VideoCapture(self._device)  # Use index for the webcam (adjust the index accordingly if necessary)    
+    self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)  # Set the width of the resolution
+    self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)  # Set the height of the resolution
+    self._cap.set(cv2.CAP_PROP_FPS, 60)  # Set the frame rate of the webcam
+    PREVIEW_MAX_WIDTH = self._width
+    PREVIEW_MAX_HEIGHT = self._height
 
-source_image = {"image": None, "annotated_image": None, "timestamp": 0}
-current_camera = {"image": None, "byte_string": None, "timestamp": 0}
-current_deepfake = {"image": None, "byte_string":None, "timestamp": 0, "active": True}
+    # Set up the frame processors
+    self.setup()
 
+    # Use the tempoerary face image saved by default.
+    self._load_source_image_from_file()
 
-def copy_from_alt_temp_file() -> None:
-  """Capture the source image from the camera."""
-  log(f"Copying alt image...", "source")
-  cv2_image = cv2.imread("images/deep1.jpg")
-  log(f"Image of type {type(cv2_image)}, shape {cv2_image.shape}, max {cv2_image.max()}", "source")
-  source_image["image"] = cv2_image
-  source_image["annotated_image"] = get_one_face(cv2_image)
-  source_image["byte_string"] = write_numpy_to_byte_string(source_image["image"])
-  source_image["timestamp"] = time.time()
-  log(f"Temporary image saved to {opts.camera_image_path}...", "source")
-  cv2.imwrite(opts.camera_image_path, cv2_image)
+    # Start the deep fake processing
+    self._thread = None
+    self.start()
 
 
-def capture_source_image_from_camera() -> None:
-  """Capture the source image from the camera."""
-  if current_camera["image"] is not None:
-    log(f"Capturing camera image...", "source")
-    cv2_image = current_camera["image"].copy()
+  def _init(self, opts):
+    modules.globals.source_path = self._source_path
+    modules.globals.target_path = None
+    modules.globals.output_path = None
+    modules.globals.frame_processors = ["face_swapper"]
+    modules.globals.headless = None
+    modules.globals.keep_fps = False
+    modules.globals.keep_audio = False
+    modules.globals.keep_frames = False
+    modules.globals.many_faces = True
+    modules.globals.video_encoder = "libx264"
+    modules.globals.video_quality = 18
+    modules.globals.max_memory = opts.max_memory
+    modules.globals.execution_providers = core.decode_execution_providers(opts.execution_provider)
+    modules.globals.execution_threads = 8
+    modules.globals.fp_ui['face_enhancer'] = False
+    modules.globals.nsfw = False
+
+
+  def many_faces(self, value: bool):
+    prev_value = modules.globals.many_faces
+    modules.globals.many_faces = value
+    if value != prev_value:
+      self.setup()
+
+
+  def setup(self) -> None:
+    """Set up the face-swapper."""
+
+    self._frame_processors = get_frame_processors_modules(modules.globals.frame_processors)
+    for frame_processor in self._frame_processors:
+      if not frame_processor.pre_check():
+        log("Could not pre-check frame_processor", "error")
+        exit(1)
+    core.limit_resources()
+
+
+  def status(self):
+    return {"many_faces": modules.globals.many_faces,
+            "active": self.current_deepfake["active"]}
+
+
+  def _store_source_image(self, cv2_image):
     log(f"Image of type {type(cv2_image)}, shape {cv2_image.shape}, max {cv2_image.max()}", "source")
-    source_image["image"] = cv2_image
-    source_image["annotated_image"] = get_one_face(cv2_image)
-    source_image["byte_string"] = write_numpy_to_byte_string(source_image["image"])
-    source_image["timestamp"] = time.time()
-    log(f"Temporary image saved to {opts.camera_image_path}...", "source")
-    cv2.imwrite(opts.camera_image_path, cv2_image)
+    self.source_image["image"] = cv2_image
+    self.source_image["annotated_image"] = get_one_face(cv2_image)
+    self.source_image["byte_string"] = self._write_numpy_to_byte_string(self.source_image["image"])
+    self.source_image["timestamp"] = time.time()
 
 
-def load_source_image_from_file() -> None:
-  """Load the source image from a file."""
-  if modules.globals.source_path:
-    log(f"Loading image {modules.globals.source_path}...", "source")
-    cv2_image = cv2.imread(modules.globals.source_path)
-    log(f"Image of type {type(cv2_image)}, shape {cv2_image.shape}, max {cv2_image.max()}", "source")
-    source_image["image"] = cv2_image
-    source_image["annotated_image"] = get_one_face(cv2_image)
-    source_image["byte_string"] = write_numpy_to_byte_string(source_image["image"])
-    source_image["timestamp"] = time.time()
+  def copy_from_alt_temp_file(self) -> None:
+    """Capture the source image from the camera."""
+    log(f"Copying alt image, storing in {self._camera_image_path}...", "source")
+    cv2_image = cv2.imread("images/deep1.jpg")
+    self._store_source_image(cv2_image)
+    cv2.imwrite(self._camera_image_path, cv2_image)
 
 
-def write_numpy_to_byte_string(image: np.ndarray):
-  """Write numpy array image onto a bytestream."""
-  if image is not None:
-    frame = io.BytesIO()
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(image)
-    image.save(frame, format='JPEG')
-    return frame.getvalue()
-  else:
-    return None
+  def capture_source_image_from_camera(self) -> None:
+    """Capture the source image from the camera."""
+    if current_camera["image"] is not None:
+      log(f"Capturing camera image, storing in {self._camera_image_path}...", "source")
+      cv2_image = current_camera["image"].copy()
+      self._store_source_image(cv2_image)
+      cv2.imwrite(self._camera_image_path, cv2_image)
 
 
-def write_image_to_byte_string(image: Image.Image):
-  """Write PIL image onto a bytestream."""
-  if image is not None:
-    frame = io.BytesIO()
-    image.save(frame, format='JPEG')
-    return frame.getvalue()
-  else:
-    return None
+  def _load_source_image_from_file(self) -> None:
+    """Load the source image from a file."""
+    if modules.globals.source_path:
+      log(f"Loading image {modules.globals.source_path}...", "source")
+      cv2_image = cv2.imread(modules.globals.source_path)
+      self._store_source_image(cv2_image)
 
 
-def run_deep_fake_loop() -> None:
-  """Run the deep fake loop."""
-
-  # Start the camera.
-  cap = cv2.VideoCapture(opts.device)  # Use index for the webcam (adjust the index accordingly if necessary)    
-  cap.set(cv2.CAP_PROP_FRAME_WIDTH, opts.width)  # Set the width of the resolution
-  cap.set(cv2.CAP_PROP_FRAME_HEIGHT, opts.height)  # Set the height of the resolution
-  cap.set(cv2.CAP_PROP_FPS, 60)  # Set the frame rate of the webcam
-  PREVIEW_MAX_WIDTH = opts.width
-  PREVIEW_MAX_HEIGHT = opts.height
-
-  # Use the tempoerary face image saved by default.
-  load_source_image_from_file()
-
-  # Create the frame processors.
-  frame_processors = get_frame_processors_modules(modules.globals.frame_processors)
-
-  # Infinite loop.
-  while True:
-
-    # Read the camera and crash if no image.
-    camera_return, camera_frame = cap.read()
-    if not camera_return:
-      log("Cannot get camera input.", "error")
-      exit(0)
-
-    # Create a copy of the camera frame and store it.
-    current_camera["image"] = camera_frame.copy()
-    current_camera["timestamp"] = time.time()
-    current_camera["byte_string"] = write_numpy_to_byte_string(current_camera["image"])
-
-    # Process the camera frame to create the deep fake.
-    fake_image = camera_frame.copy()
-    if current_deepfake["active"] is True:
-      try:
-        for frame_processor in frame_processors:
-          fake_image = frame_processor.process_frame(source_image["annotated_image"], fake_image)
-      except:
-        log("NEED TO TAKE NEW PICTURE", "error")
-
-    # Convert the image to RGB format to display it with Tkinter and store it.
-    current_deepfake["image"] = fake_image
-    current_deepfake["byte_string"] = write_numpy_to_byte_string(current_deepfake["image"])
-    current_deepfake["timestamp"] = time.time()
+  def _write_numpy_to_byte_string(self, image: np.ndarray):
+    """Write numpy array image onto a bytestream."""
+    if image is not None:
+      frame = io.BytesIO()
+      image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+      image = Image.fromarray(image)
+      image.save(frame, format='JPEG')
+      return frame.getvalue()
+    else:
+      return None
 
 
-thread = threading.Thread(target=run_deep_fake_loop, args=())
-thread.start()
+  def _run_deep_fake_loop(self) -> None:
+    """Run the deep fake loop."""
+    while True:
+
+      # Read the camera and crash if no image.
+      camera_return, camera_frame = self._cap.read()
+      if not camera_return:
+        log("Cannot get camera input.", "error")
+        exit(0)
+
+      # Create a copy of the camera frame and store it.
+      self.current_camera["image"] = camera_frame.copy()
+      self.current_camera["timestamp"] = time.time()
+      self.current_camera["byte_string"] = self._write_numpy_to_byte_string(self.current_camera["image"])
+
+      # Process the camera frame to create the deep fake.
+      fake_image = camera_frame.copy()
+      if self.current_deepfake["active"] is True:
+        # try:
+          for frame_processor in self._frame_processors:
+            fake_image = frame_processor.process_frame(self.source_image["annotated_image"], fake_image)
+        # except:
+        #   log("NEED TO TAKE NEW PICTURE", "error")
+
+      # Convert the image to RGB format to display it with Tkinter and store it.
+      self.current_deepfake["image"] = fake_image
+      self.current_deepfake["byte_string"] = self._write_numpy_to_byte_string(self.current_deepfake["image"])
+      self.current_deepfake["timestamp"] = time.time()
 
 
-def source_stream():
+  def start(self):
+    self._thread = threading.Thread(target=self._run_deep_fake_loop, args=())
+    self._thread.start()
+
+
+
+def source_stream(face_swapper: FaceSwapper):
   """Loop that streams the most recent image source."""
 
   latest_byte_string = None
   latest_timestamp = 0
   while True:
-    if latest_timestamp < source_image["timestamp"]:
+    if latest_timestamp < face_swapper.source_image["timestamp"]:
       log(f"stream: {latest_timestamp}", "source_stream")
-      latest_timestamp = source_image["timestamp"]
-      latest_byte_string = source_image["byte_string"]
+      latest_timestamp = face_swapper.source_image["timestamp"]
+      latest_byte_string = face_swapper.source_image["byte_string"]
       if latest_byte_string is not None:
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + latest_byte_string + b'\r\n')
@@ -208,16 +222,16 @@ def source_stream():
         time.sleep(0.001)
 
 
-def deepfake_stream():
+def deepfake_stream(face_swapper: FaceSwapper):
   """Loop that streams the camera / deep fake image using the last input / result."""
 
   latest_byte_string = None
   latest_timestamp = 0
   while True:
-    if latest_timestamp < current_deepfake["timestamp"]:
+    if latest_timestamp < face_swapper.current_deepfake["timestamp"]:
       log(f"stream: {latest_timestamp}", "deepfake_stream")
-      latest_timestamp = current_deepfake["timestamp"]
-      latest_byte_string = current_deepfake["byte_string"]
+      latest_timestamp = face_swapper.current_deepfake["timestamp"]
+      latest_byte_string = face_swapper.current_deepfake["byte_string"]
       if latest_byte_string is not None:
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + latest_byte_string + b'\r\n')
@@ -229,7 +243,7 @@ def deepfake_stream():
         time.sleep(0.001)
 
 
-def run_flask(ai_narrator, opts):
+def run_flask(face_swapper, opts):
   """Define the app, and wrap it in CORS handler and in socketio."""
   log(f"Running Flask app with {opts}", "flask")
 
@@ -258,9 +272,9 @@ def run_flask(ai_narrator, opts):
   @socketio.on('status')
   def status(data):
     """Callback for the socketIO returning the current state of narration.""" 
-    nonlocal ai_narrator
+    nonlocal face_swapper
     try:
-      socketio.emit('status-update', ai_narrator.status())
+      socketio.emit('status-update', face_swapper.status())
       pass
     except Exception as e:
       logging.error(f"Error emitting stream status: {e}")
@@ -278,42 +292,49 @@ def run_flask(ai_narrator, opts):
   @app.route("/copy")
   @cross_origin(supports_credentials=True)
   def copy():
-    copy_from_alt_temp_file()
+    nonlocal face_swapper
+    face_swapper.copy_from_alt_temp_file()
     return str(source_image["timestamp"])
 
 
   @app.route("/click")
   @cross_origin(supports_credentials=True)
   def click():
-    capture_source_image_from_camera()
-    return str(source_image["timestamp"])
+    nonlocal face_swapper
+    face_swapper.capture_source_image_from_camera()
+    return str(face_swapper.source_image["timestamp"])
 
 
   @app.route("/active")
   @cross_origin(supports_credentials=True)
   def active():
-    current_deepfake["active"] = True
+    nonlocal face_swapper
+    face_swapper.current_deepfake["active"] = True
     return str("active")
 
 
   @app.route("/inactive")
   @cross_origin(supports_credentials=True)
   def inactive():
-    current_deepfake["active"] = False
+    nonlocal face_swapper
+    face_swapper.current_deepfake["active"] = False
     return str("inactive")
 
 
   @app.route("/source")
   @cross_origin(supports_credentials=True)
   def source():
-    return flask.Response(source_stream(),
+    nonlocal face_swapper
+    return flask.Response(source_stream(face_swapper),
                           mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
   @app.route("/")
   @cross_origin(supports_credentials=True)
   def stream():
-    return flask.Response(deepfake_stream(),
+    print("STREAM")
+    nonlocal face_swapper
+    return flask.Response(deepfake_stream(face_swapper),
                           mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
@@ -322,5 +343,5 @@ def run_flask(ai_narrator, opts):
 
 
 if __name__ == '__main__':
-  setup()
-  run_flask(None, opts)
+  face_swapper = FaceSwapper(opts)
+  run_flask(face_swapper, opts)
