@@ -247,6 +247,8 @@ class FaceSwapper(object):
 
   def _run_deep_fake_loop(self) -> None:
     """Run the deep fake loop."""
+    t_frame = time.time()
+    delta_t_frame = 0
     while True:
 
       # Read the camera and crash if no image.
@@ -262,11 +264,17 @@ class FaceSwapper(object):
 
       # Process the camera frame to create the deep fake.
       fake_image = camera_frame.copy()
+      delta_t_bg = 0
       if self.background_removal:
+        t0 = time.time()
         fake_image = rembg.remove(fake_image, session=self.rembg_session)[:][:, :, :3]
+        delta_t_bg = time.time() - t0
+      delta_t_swap = 0
       if self.current_deepfake["active"] is True:
+        t0 = time.time()
         source_face = self.source_image["annotated_image"]
         fake_image = self._process_frame(source_face, fake_image)
+        delta_t_swap = time.time() - t0
       else:
         self.target_embedding = None
         many_faces = get_many_faces(fake_image)
@@ -277,9 +285,12 @@ class FaceSwapper(object):
       self.current_deepfake["byte_string"] = utils.write_numpy_to_byte_string(self.current_deepfake["image"])
       self.current_deepfake["timestamp"] = time.time()
 
-      with pyvirtualcam.Camera(width=640, height=480, fps=20) as cam:
-      # with pyvirtualcam.Camera(width=1280, height=720, fps=20) as cam:
+      #with pyvirtualcam.Camera(width=640, height=480, fps=20) as cam:
+      with pyvirtualcam.Camera(width=1280, height=720, fps=20) as cam:
         cam.send(cv2.cvtColor(fake_image, cv2.COLOR_BGR2RGB))
+      delta_t_frame = 0.5 * (time.time() - t_frame) + delta_t_frame * 0.5
+      t_frame = time.time()
+      log(f"FPS: {1/delta_t_frame:.2f}, bg removal: {delta_t_bg:.2f}s, face swap: {delta_t_swap:.2f}s", "info")
 
 
   def start(self):
