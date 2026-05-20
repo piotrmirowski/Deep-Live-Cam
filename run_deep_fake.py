@@ -37,6 +37,8 @@ parser.add_argument('-s', '--source', help='select an source image', dest='sourc
 parser.add_argument('--port', help='Port', dest='port', type=int, default=8001)
 parser.add_argument('--device', help='webcam device', dest='device',
                     type=str, default="Integrated Webcam")
+parser.add_argument('--camera-index', help='webcam device index', dest='camera_index',
+                    type=int, default=None)
 parser.add_argument('--width', help='width in pixels', dest='width',
                     type=int, default=960)
 parser.add_argument('--height', help='height in pixels', dest='height',
@@ -63,7 +65,12 @@ class FaceSwapper(object):
 
     # Initialise the parameters
     self._source_path = opts.source_path
-    self._device = utils.list_webcams(opts.device)
+    if getattr(opts, 'camera_index', None) is not None:
+      utils.list_webcams(opts.device)
+      self._device = opts.camera_index
+      log(f"Using camera index {self._device} specified by --camera-index", "info")
+    else:
+      self._device = utils.list_webcams(opts.device)
     self._width = opts.width
     self._height = opts.height
     self._init(opts)
@@ -247,15 +254,34 @@ class FaceSwapper(object):
 
   def _run_deep_fake_loop(self) -> None:
     """Run the deep fake loop."""
+
     t_frame = time.time()
     delta_t_frame = 0
+
+    # for _ in range(4):
+    #   # Read the camera and crash if no image.
+    #   camera_return, camera_frame = self._cap.read()
+    #   if not camera_return:
+    #     log("Cannot get camera input.", "error")
+    #     exit(0)
+    #   time.sleep(0.033)
+    #   delta_t_frame = 0.5 * (time.time() - t_frame) + delta_t_frame * 0.5
+    #   t_frame = time.time()
+    #   log(f"FPS: {1/delta_t_frame:.2f}", "info")
+
     while True:
 
       # Read the camera and crash if no image.
-      camera_return, camera_frame = self._cap.read()
+      camera_return, camera_buffer = self._cap.read()
       if not camera_return:
         log("Cannot get camera input.", "error")
         exit(0)
+      camera_frame = camera_buffer.copy()
+
+      # Resize the camera frame to the specified width and height.
+      t0 = time.time()
+      camera_frame = cv2.resize(camera_frame, (self._width, self._height))
+      delta_t_size = time.time() - t0
 
       # Create a copy of the camera frame and store it.
       self.current_camera["image"] = camera_frame.copy()
@@ -285,12 +311,11 @@ class FaceSwapper(object):
       self.current_deepfake["byte_string"] = utils.write_numpy_to_byte_string(self.current_deepfake["image"])
       self.current_deepfake["timestamp"] = time.time()
 
-      #with pyvirtualcam.Camera(width=640, height=480, fps=20) as cam:
-      with pyvirtualcam.Camera(width=1280, height=720, fps=20) as cam:
+      with pyvirtualcam.Camera(width=self._width, height=self._height, fps=20) as cam:
         cam.send(cv2.cvtColor(fake_image, cv2.COLOR_BGR2RGB))
       delta_t_frame = 0.5 * (time.time() - t_frame) + delta_t_frame * 0.5
       t_frame = time.time()
-      log(f"FPS: {1/delta_t_frame:.2f}, bg removal: {delta_t_bg:.2f}s, face swap: {delta_t_swap:.2f}s", "info")
+      log(f"FPS: {1/delta_t_frame:.2f}, size: {delta_t_size:.2f}s, bg: {delta_t_bg:.2f}s, swap: {delta_t_swap:.2f}s", "info")
 
 
   def start(self):
