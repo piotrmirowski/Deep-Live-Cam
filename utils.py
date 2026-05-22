@@ -1,4 +1,7 @@
 import io
+import os
+import subprocess
+import shutil
 from typing import Optional
 
 import cv2
@@ -82,5 +85,62 @@ def write_numpy_to_byte_string(image: np.ndarray) -> Optional[bytes]:
     return None
 
 
-def log(msg: str, msg_type: str) -> None:
+def log(msg: str, msg_type: str = "info") -> None:
   print(f"[{msg_type}] {msg}")
+
+
+def print_progress_bar(iteration: int,
+                       total: int,
+                       prefix: str = '',
+                       suffix: str = '',
+                       decimals: int = 1,
+                       length: int = 40,
+                       fill: str = '#',
+                       print_end: str = "\r") -> None:
+  """Call in a loop to create terminal progress bar."""
+  percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+  filled_length = int(length * iteration // total)
+  bar = fill * filled_length + '-' * (length - filled_length)
+  print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=print_end)
+  if iteration == total:
+    print()
+
+
+def merge_audio(temp_video_path: str,
+                original_video_path: str,
+                output_video_path: str) -> None:
+  """Merge original audio from target video into the face-swapped temporary video."""
+  
+  # ffmpeg -y -i temp_video -i original_video -c:v copy -c:a copy -map 0:v:0 -map 1:a? output_video
+  log("Merging original audio into final video...")
+  command = [
+      "ffmpeg",
+      "-y",
+      "-hide_banner",
+      "-loglevel", "error",
+      "-i", temp_video_path,
+      "-i", original_video_path,
+      "-c:v", "copy",
+      "-c:a", "copy",
+      "-map", "0:v:0",
+      "-map", "1:a?",
+      output_video_path
+  ]
+  log(f"Command:\n{" ".join(command)}")
+  try:
+    subprocess.run(command, check=True)
+    if os.path.exists(output_video_path) and os.path.getsize(output_video_path) > 0:
+      log("Successfully merged audio!")
+      if os.path.exists(temp_video_path):
+        os.remove(temp_video_path)
+      return True
+  except Exception as e:
+    log(f"Warning: Failed to merge audio using FFmpeg: {e}", msg_type="warning")
+    log("Falling back to silent video.")
+    if os.path.exists(output_video_path):
+      try:
+        os.remove(output_video_path)
+      except Exception:
+        pass
+    shutil.move(temp_video_path, output_video_path)
+    return False
