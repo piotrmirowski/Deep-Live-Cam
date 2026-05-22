@@ -80,3 +80,7 @@ def write_numpy_to_byte_string(image: np.ndarray) -> Optional[bytes]:
     return frame.getvalue()
   else:
     return None
+
+
+def log(msg: str, msg_type: str) -> None:
+  print(f"[{msg_type}] {msg}")
