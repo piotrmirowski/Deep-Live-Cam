@@ -62,10 +62,37 @@
       </tr>
     </table>
 
+    <table align="left" class="generator-table">
+      <tr>
+        <td class="generator-title">
+          [ CELEBRITY GENERATOR ]
+        </td>
+        <td class="padded-cell">
+          <input type="text" id="generator_celebrity" class="generator-input" placeholder="Celebrity Name (e.g. Tom Cruise)" />
+        </td>
+        <td class="padded-cell">
+          <input type="text" id="generator_title" class="generator-input" placeholder="Show Title (e.g. Improbotics)" />
+        </td>
+        <td class="padded-cell">
+          <button class="command" id="btn_generate" onclick="startGeneration()">Generate Video</button>
+        </td>
+        <td class="padded-cell">
+          <span id="generation_status_text"></span>
+        </td>
+      </tr>
+    </table>
+
     <div class="main-container">
       <iframe id="source" src="/source"></iframe>
       <div id="search_results">
         <!-- Images will appear here -->
+      </div>
+      
+      <!-- Generated Video Preview Container -->
+      <div id="generation_preview_container">
+        <div class="generator-header">[ GENERATED VIDEO ]</div>
+        <video id="generation_video_player" controls autoplay loop></video>
+        <div id="generation_info"></div>
       </div>
     </div>
   </div>
@@ -334,6 +361,145 @@
       }
     }
   });
+
+
+  // --- Celebrity Generator Pipeline Code ---
+  let generationInterval = null;
+
+  function startGeneration() {
+    const celebrityInput = document.getElementById('generator_celebrity');
+    const titleInput = document.getElementById('generator_title');
+    const celebrity = celebrityInput.value.trim();
+    const title = titleInput.value.trim();
+    
+    if (!celebrity || !title) {
+      alert("Please enter both a Celebrity Name and a Show Title.");
+      return;
+    }
+    
+    const btn = document.getElementById('btn_generate');
+    btn.disabled = true;
+    btn.innerText = "Generating...";
+    
+    const statusText = document.getElementById('generation_status_text');
+    statusText.innerText = "Initializing generation pipeline...";
+    statusText.style.color = "#aa0000";
+    
+    // Reset video player and hide
+    document.getElementById('generation_preview_container').style.display = 'none';
+
+    fetch('/generate_celebrity?celebrity=' + encodeURIComponent(celebrity) + '&title=' + encodeURIComponent(title))
+      .then(response => response.json())
+      .then(data => {
+        if (data.status === 'success') {
+          // Start polling
+          if (generationInterval) clearInterval(generationInterval);
+          generationInterval = setInterval(pollGenerationStatus, 1000);
+        } else {
+          alert('Error starting generation: ' + data.message);
+          btn.disabled = false;
+          btn.innerText = "Generate Video";
+          statusText.innerText = "Failed: " + data.message;
+          statusText.style.color = "#ff0000";
+        }
+      })
+      .catch(error => {
+        alert('Failed to connect to server.');
+        btn.disabled = false;
+        btn.innerText = "Generate Video";
+        statusText.innerText = "Connection failed.";
+        statusText.style.color = "#ff0000";
+      });
+  }
+
+  function pollGenerationStatus() {
+    fetch('/generation_status')
+      .then(response => response.json())
+      .then(data => {
+        const statusText = document.getElementById('generation_status_text');
+        const btn = document.getElementById('btn_generate');
+        
+        if (data.status === 'idle') {
+          if (generationInterval) {
+            clearInterval(generationInterval);
+            generationInterval = null;
+          }
+          btn.disabled = false;
+          btn.innerText = "Generate Video";
+          statusText.innerText = "";
+          return;
+        }
+        
+        // Format step display
+        let stepLabels = {
+          "description": "Description",
+          "voice_description": "Voice",
+          "image": "Image",
+          "video": "Veo Video",
+          "swap": "Face Swap"
+        };
+        
+        let stepsText = [];
+        let steps = ["description", "voice_description", "image", "video", "swap"];
+        
+        for (let i = 0; i < steps.length; i++) {
+          let step = steps[i];
+          let val = data.steps[step];
+          let statusIndicator = "";
+          
+          if (val === "failed") {
+            statusIndicator = "FAIL";
+          } else if (val !== 0) {
+            statusIndicator = "DONE";
+          } else if (data.current_step === step) {
+            statusIndicator = "RUNNING";
+          } else {
+            statusIndicator = "PENDING";
+          }
+          stepsText.push(stepLabels[step] + ": " + statusIndicator);
+        }
+        
+        statusText.innerText = "Pipeline: [" + data.status.toUpperCase() + "] | " + stepsText.join(" | ");
+        
+        if (data.status === 'completed') {
+          if (generationInterval) {
+            clearInterval(generationInterval);
+            generationInterval = null;
+          }
+          btn.disabled = false;
+          btn.innerText = "Generate Video";
+          statusText.innerText = "Generation finished successfully!";
+          statusText.style.color = "#00ff00";
+          
+          // Show video preview
+          const videoPlayer = document.getElementById('generation_video_player');
+          const videoUrl = data.swapped_video ? data.swapped_video : data.video;
+          
+          if (videoUrl) {
+            videoPlayer.src = videoUrl + '?t=' + new Date().getTime();
+            document.getElementById('generation_preview_container').style.display = 'flex';
+            
+            let info = `<strong>Celebrity:</strong> ${data.celebrity}<br><strong>Show:</strong> ${data.show_title}`;
+            if (data.swapped_video) {
+              info += `<br><span style="color:#00ff00; font-weight:bold;">Face Swapped Successfully</span>`;
+            }
+            document.getElementById('generation_info').innerHTML = info;
+          }
+        } else if (data.status === 'failed') {
+          if (generationInterval) {
+            clearInterval(generationInterval);
+            generationInterval = null;
+          }
+          btn.disabled = false;
+          btn.innerText = "Generate Video";
+          statusText.innerText = `Pipeline failed during ${stepLabels[data.current_step] || data.current_step}`;
+          statusText.style.color = "#ff0000";
+        }
+      })
+      .catch(error => {
+        console.error("Error polling generation status:", error);
+      });
+  }
 
 
 </script>

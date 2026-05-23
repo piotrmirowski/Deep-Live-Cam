@@ -410,3 +410,89 @@ def swap_video(source_path: str,
     print(f"Successfully saved output video to: {output_path}")
     print(f"Output File Size: {os.path.getsize(output_path) / (1024 * 1024):.2f} MB")
     print("--------------------------------------------------")
+
+
+def swap_image(source_path: str,
+               target_path: str,
+               output_path: str,
+               execution_provider: str = 'cuda',
+               max_memory: int = None,
+               verbose: bool = True) -> None:
+  """
+  Perform face swapping on a single target image using the source face image.
+  Saves the result to output_path.
+
+  Args:
+    source_path (str): Path to the source face image (e.g. images/temp.jpg)
+    target_path (str): Path to the target image (e.g. images/target.jpg)
+    output_path (str): Path to save the processed image (e.g. images/output.jpg)
+    execution_provider (str): ONNX execution provider (e.g. cpu, cuda, directml)
+    max_memory (int, optional): Maximum amount of RAM in GB. If None, suggests max memory automatically.
+    verbose (bool): If True, prints progress details to stdout.
+  """
+  # Check paths.
+  if not os.path.exists(source_path):
+    raise FileNotFoundError(f"Source image file '{source_path}' does not exist.")
+  if not os.path.exists(target_path):
+    raise FileNotFoundError(f"Target image file '{target_path}' does not exist.")
+  output_dir = os.path.dirname(os.path.abspath(output_path))
+  if output_dir and not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+
+  class FaceSwapperOpts:
+    def __init__(self):
+      self.source_path = source_path
+      self.width = 960
+      self.height = 540
+      self.max_memory = max_memory if max_memory is not None else core.suggest_max_memory()
+      self.execution_provider = [execution_provider]
+      self.cli_mode = True
+  opts = FaceSwapperOpts()
+
+  if verbose:
+    print("--------------------------------------------------")
+    print("Initializing FaceSwapper for image...")
+    print(f"Source Image: {source_path}")
+    print(f"Target Image: {target_path}")
+    print(f"Output Image: {output_path}")
+    print(f"Execution Provider: {execution_provider}")
+    print("--------------------------------------------------")
+  swapper = FaceSwapper(opts)
+  swapper.many_faces(True)
+
+  # Get the annotated source face.
+  source_face = swapper.source_image["annotated_image"]
+  if not source_face:
+    raise ValueError(f"No face detected in the source image '{source_path}'.")
+
+  # Read target image.
+  target_image = cv2.imread(target_path)
+  if target_image is None:
+    raise IOError(f"Could not open target image '{target_path}' using OpenCV.")
+
+  start_time = time.time()
+  try:
+    if verbose:
+      print("Processing image...")
+    # Swap faces in the target image
+    processed_image = swapper._process_frame(source_face, target_image)
+    # Write the processed image to output
+    cv2.imwrite(output_path, processed_image)
+  except Exception as e:
+    if verbose:
+      print(f"\nAn error occurred during face swapping: {e}")
+    raise e
+
+  total_time = time.time() - start_time
+  if verbose:
+    print("--------------------------------------------------")
+    print(f"Face swapping completed in {total_time:.2f} seconds.")
+
+  if not (os.path.exists(output_path) and os.path.getsize(output_path) > 0):
+    raise IOError("Output image file is empty or was not created.")
+
+  if verbose:
+    print(f"Successfully saved output image to: {output_path}")
+    print(f"Output File Size: {os.path.getsize(output_path) / 1024:.2f} KB")
+    print("--------------------------------------------------")
+
