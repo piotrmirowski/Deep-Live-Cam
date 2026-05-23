@@ -319,6 +319,10 @@ def run_flask(face_swapper, opts):
     nonlocal generator_instance
     celebrity = flask.request.args.get('celebrity', '').strip()
     title = flask.request.args.get('title', '').strip()
+    try:
+      sentence = int(flask.request.args.get('sentence', '1').strip())
+    except ValueError:
+      sentence = 1
     
     if not celebrity or not title:
       return flask.jsonify({"status": "error", "message": "Missing celebrity or title parameters."}), 400
@@ -341,7 +345,7 @@ def run_flask(face_swapper, opts):
       # Run generation in a background thread to prevent blocking Flask thread/loop
       thread = threading.Thread(
           target=generator_instance.generate,
-          args=(celebrity, title, source_face_path),
+          args=(celebrity, title, source_face_path, sentence),
           daemon=True
       )
       thread.start()

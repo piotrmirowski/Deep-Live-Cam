@@ -34,6 +34,10 @@ SENTENCE_01 = (
     "Hello friends! I am on my way to your show! [SHOW_NAME]! " +
     "Make sure you run the vote to eliminate one of the contestants."
 )
+SENTENCE_02 = (
+    "Don't forget to vote. One of the contestants needs to go! " +
+    "I'll be there in 2 minutes."
+)
 PROMPT_VIDEO = (
     "A high-quality cinematic portrait video showing the person described, "
     "smile, look directly at the camera, and speak naturally. Soft cinematic lighting, "
@@ -71,6 +75,7 @@ class Generator:
     self._video = None
     self._swapped_video = None
     self._start_time = None
+    self._sentence = 1
     self._timestamps = {step: 0 for step in GENERATOR_STEPS}
 
 
@@ -83,7 +88,10 @@ class Generator:
 
 
   def _prompt_video(self, show_title: str) -> str:
-    message = SENTENCE_01.replace("[SHOW_NAME]", show_title)
+    if self._sentence == 2:
+      message = SENTENCE_02.replace("[SHOW_NAME]", show_title)
+    else:
+      message = SENTENCE_01.replace("[SHOW_NAME]", show_title)
     return PROMPT_VIDEO.replace("[MESSAGE]", message).replace("[VOICE_DESCRIPTION]", self._voice_description)
 
 
@@ -284,11 +292,12 @@ class Generator:
     thread.start()
 
 
-  def generate(self, celebrity: str, show_title: str, source_face_path: str = None):
+  def generate(self, celebrity: str, show_title: str, source_face_path: str = None, sentence: int = 1):
     self.reset()
     self._celebrity = celebrity
     self._show_title = show_title
     self._source_face_path = source_face_path
+    self._sentence = sentence
     self._start_time = time.time()
     logging.info(f"Starting generation process for celebrity: {celebrity}")
     self._generate_description(self._start_time)
@@ -306,6 +315,7 @@ def main():
   parser.add_argument('-t', '--title', help='Show title', required=True)
   parser.add_argument('-s', '--source', help='Path to source face image to swap into the generated video (optional)', default=None)
   parser.add_argument('-f', '--folder', default='images', help='Folder where to store logs, image, and video outputs')
+  parser.add_argument('--sentence', type=int, choices=[1, 2], default=1, help='Sentence template index (1 or 2)')
   parser.add_argument('--verbose', action='store_true', help='Enable verbose debug logging')
 
   args = parser.parse_args()
@@ -314,7 +324,7 @@ def main():
   logging.basicConfig(level=log_level, format='[%(levelname)s] %(message)s')
 
   generator = Generator(folder=args.folder)
-  generator.generate(args.celebrity, args.title, args.source)
+  generator.generate(args.celebrity, args.title, args.source, sentence=args.sentence)
 
   # Since the generation runs in the background in scheduling threads, poll for completion
   try:

@@ -74,6 +74,12 @@
           <input type="text" id="generator_title" class="generator-input" placeholder="Show Title (e.g. Improbotics)" />
         </td>
         <td class="padded-cell">
+          <select id="generator_sentence" class="generator-select">
+            <option value="1">Sentence 1</option>
+            <option value="2">Sentence 2</option>
+          </select>
+        </td>
+        <td class="padded-cell">
           <button class="command" id="btn_generate" onclick="startGeneration()">Generate Video</button>
         </td>
         <td class="padded-cell">
@@ -91,7 +97,7 @@
       <!-- Generated Video Preview Container -->
       <div id="generation_preview_container">
         <div class="generator-header">[ GENERATED VIDEO ]</div>
-        <video id="generation_video_player" controls autoplay loop></video>
+        <video id="generation_video_player" controls loop></video>
         <div id="generation_info"></div>
       </div>
     </div>
@@ -369,8 +375,10 @@
   function startGeneration() {
     const celebrityInput = document.getElementById('generator_celebrity');
     const titleInput = document.getElementById('generator_title');
+    const sentenceSelect = document.getElementById('generator_sentence');
     const celebrity = celebrityInput.value.trim();
     const title = titleInput.value.trim();
+    const sentence = sentenceSelect.value;
     
     if (!celebrity || !title) {
       alert("Please enter both a Celebrity Name and a Show Title.");
@@ -388,7 +396,7 @@
     // Reset video player and hide
     document.getElementById('generation_preview_container').style.display = 'none';
 
-    fetch('/generate_celebrity?celebrity=' + encodeURIComponent(celebrity) + '&title=' + encodeURIComponent(title))
+    fetch('/generate_celebrity?celebrity=' + encodeURIComponent(celebrity) + '&title=' + encodeURIComponent(title) + '&sentence=' + encodeURIComponent(sentence))
       .then(response => response.json())
       .then(data => {
         if (data.status === 'success') {
