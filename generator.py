@@ -12,13 +12,14 @@ GENERATOR_STEPS = ["description", "voice_description", "image", "video", "swap"]
 PROMPT_DESCRIPTION = (
     "You are writing a prompt for Gemini Nano Banana Pro.\n" +
     "Describe physically the following person in a very detailed manner, " +
-    "mentioning their appearance and clothes, but never mention their name. " +
-    "The person is [CELEBRITY]. Write that description in a single paragraph. " +
+    "mentioning their appearance and clothes (down to the color of the clothes). " +
+    "The person is [CELEBRITY], but do not mention their name. Write that description in a single paragraph. " +
     "Focus your description on the appearance from the waist up, as the person " +
-    "is taking a selfie.\n" +
+    "is taking a selfie. The camera is not visible on the image, " +
+    "and we cannot see the arm that is holding the phone either.\n" +
     "The image is a selfie-style portrait from a phone's front camera (f/4.6, 24mm). " +
     "The person is looking directly into the lens and smiling, recording a video message. " +
-    "The person is sitting at the back of a luxury limousine. " +
+    "The person is sitting at the back of a luxury limousine with black leather seats. " +
     "The outside view is Brighton Pier and Brighton Dome, " +
     "with passers-by walking to the beach." +
     "The image has cinematic natural lighting.\n" +
@@ -30,27 +31,27 @@ PROMPT_VOICE = (
     "with all its characteristics, mentioning their accent, tone, pitch, energy, " +
     "and any other relevant features. " +
     "Write that description in a single sentence of 10 words.")
-SENTENCE_01 = (
-    "Hello everyone! I am on my way. In the meantime, you have two minutes to deliberate. " +
-    "One of you has to go home."
-)
-SENTENCE_02 = (
-    "Hey! Time's up. Cast your votes now."
-)
+SENTENCES = [
+    ("Hello everyone! " +
+    "I am on my way. In the meantime, you have two minutes to deliberate. " +
+    "One of you has to go home."),
+    ("Hey! Time's up. Cast your votes now.")
+]
 PROMPT_VIDEO = (
-    "A high-quality cinematic portrait video showing the person described, "
-    "smile, look directly at the camera, and speak naturally. Soft cinematic lighting, "
+    "A high-quality selfie portrait video showing a person smiling, "
+    "looking directly at the camera, and speak naturally. Soft cinematic lighting, "
     "subtle lifelike movements, matching composition from the image. "
-    "Selfie video from phone frontal camera (f/4.6, 24mm). " +
-    "The person is in a luxurious modern villa living room looks into the lens, " +
-    "smiles warmly, and speaks the message: [MESSAGE] " +
+    "Selfie video portrait shot, from phone frontal camera (f/4.6, 24mm). " +
+    "The person speaks the message: \"[MESSAGE]\"\n" +
     "The voice of the actor is described in these terms: [VOICE_DESCRIPTION]\n" +
     "The person is sitting at the back of a luxury limousine. " +
     "The outside view is Brighton Pier and Brighton Dome, " +
-    "with passers-by walking to the beach. " +
-    "Vertical portrait shot."
+    "with passers-by walking to the beach."
 )
-
+VIDEO_ASPECT_RATIO = "9:16"
+RESIZE_TO_1080 = True
+DRIVE_FOLDER = r"c:\Users\pimir\My Drive\HumanMachine\Improbotics\Tech\Tech_Reality_2026\Impro_Show_Ctl\assets\vid"
+DRIVE_FILENAMES = ["03 Celebrity 1.mp4", "04 Celebrity 2.mp4"]
 
 class Generator:
 
@@ -76,6 +77,8 @@ class Generator:
     self._start_time = None
     self._sentence = 1
     self._timestamps = {step: 0 for step in GENERATOR_STEPS}
+    self._videos_completed = [None] * len(SENTENCES)
+    self._swaps_completed = [None] * len(SENTENCES)
 
 
   def _prompt_description(self, celebrity: str) -> str:
@@ -132,7 +135,7 @@ class Generator:
         self._image_description = response
 
       logging.info(f"Description generated successfully! Saved log to {self._folder}.")
-      logging.info(f"Description:\n{self._image_description}\n")
+      print(f"Description:\n{self._image_description}\n")
       logging.info("Starting voice description generation...")
       self._generate_voice_description(timestamp)
 
@@ -166,7 +169,7 @@ class Generator:
         self._voice_description = response
 
       logging.info(f"Voice description generated successfully! Saved log to {self._folder}.")
-      logging.info(f"Voice Description:\n{self._voice_description}\n")
+      print(f"Voice Description:\n{self._voice_description}\n")
       logging.info("Starting image generation...")
       self._generate_image(timestamp)
 
@@ -198,9 +201,9 @@ class Generator:
         filename = self._save_image(step, response["image"], identifier)
         self._image = response["image"]
         self._image_filename = filename
-        logging.info(f"Image generated successfully! Saved to {filename}")
-        logging.info("Starting video generation with Veo...")
-        self._generate_video(timestamp)
+        print(f"Image generated successfully! Saved to {filename}")
+        logging.info("Starting pipelined video generation with Veo...")
+        self._generate_video_for_sentence(0, timestamp)
       else:
         logging.warning("No image data found in model response.")
         self._timestamps["video"] = "failed"
@@ -210,17 +213,17 @@ class Generator:
     prompt = self._image_description
     self._llm.schedule_generate(prompt,
                                 callback_image,
-                                response_format={"image_size": "1K", "aspect_ratio": "9:16"},
+                                response_format={"image_size": "1K", "aspect_ratio": VIDEO_ASPECT_RATIO},
                                 is_image=True)
 
 
-  def _generate_video(self, timestamp: float):
+  def _generate_video_for_sentence(self, index: int, timestamp: float):
     step = f"video"
     identifier = f"{timestamp:.1f}"
 
     def callback_video(prompt, response):
       if isinstance(response, dict) and "error" in response:
-        logging.error(f"Error generating video: {response['error']}")
+        logging.error(f"Error generating video {index+1}: {response['error']}")
         self._timestamps[step] = "failed"
         if self._source_face_path:
           self._timestamps["swap"] = "failed"
@@ -229,28 +232,43 @@ class Generator:
       try:
         generated_video = response["video"]
         client = response["client"]
-        video_file_path = os.path.join(self._folder, f"{step}_{identifier}.mp4")
+        video_file_path = os.path.join(self._folder, f"{step}_{index+1}_{identifier}.mp4")
 
-        logging.info("Downloading and saving the generated video...")
+        logging.info(f"Downloading and saving the generated video {index+1}...")
         client.files.download(file=generated_video.video)
         generated_video.video.save(video_file_path)
 
+        self._videos_completed[index] = video_file_path
         self._video = video_file_path
-        self._timestamps[step] = identifier
-        logging.info(f"Video generated successfully! Saved to {video_file_path}")
+        print(f"Video {index+1} generated successfully! Saved to {video_file_path}")
 
-        # If a source face was provided, trigger face swapping!
-        if self._source_face_path:
-          logging.info("Starting face swapping on the generated video...")
-          self._generate_swap(timestamp)
+        # If we are not doing face swap:
+        if not self._source_face_path:
+
+          # Check if all videos are completed
+          if all(v is not None for v in self._videos_completed):
+            self._timestamps["video"] = identifier
+            logging.info("All video generations completed successfully!")
+        else:
+          # Trigger face swapping for this video
+          self._generate_swap_for_sentence(index, video_file_path, timestamp)
+
+        # Start generating the next video while processing the swap / continuation
+        next_index = index + 1
+        if next_index < len(SENTENCES):
+          logging.info(f"Pipelining: Starting generation for video {next_index+1}...")
+          self._generate_video_for_sentence(next_index, timestamp)
+
       except Exception as e:
-        logging.error(f"Error saving generated video: {e}")
+        logging.error(f"Error saving generated video {index+1}: {e}")
         self._timestamps[step] = "failed"
         if self._source_face_path:
           self._timestamps["swap"] = "failed"
 
-    video_prompt = self._prompt_video(self._show_title)
-    print(video_prompt)
+    # Format the prompt with the specific sentence text
+    sentence_text = SENTENCES[index]
+    video_prompt = PROMPT_VIDEO.replace("[MESSAGE]", sentence_text).replace("[VOICE_DESCRIPTION]", self._voice_description)
+    print(f"Prompt for video {index+1}: {video_prompt}")
 
     def run_veo():
       self._veo.generate_video(
@@ -264,33 +282,56 @@ class Generator:
     thread.start()
 
 
-  def _generate_swap(self, timestamp: float):
+  def _generate_swap_for_sentence(self, index: int, video_path: str, timestamp: float):
     step = f"swap"
     identifier = f"{timestamp:.1f}"
 
     def run_swap():
       try:
-        swapped_video_path = os.path.join(self._folder, f"{step}_{identifier}.mp4")
-        logging.info(f"Swapping face from '{self._source_face_path}' into video '{self._video}'...")
+        swapped_video_path = os.path.join(self._folder, f"{step}_{index+1}_{identifier}.mp4")
+        logging.info(f"Swapping face from '{self._source_face_path}' into video {index+1} '{video_path}'...")
         
         deep_fake.swap_video(
             source_path=self._source_face_path,
-            target_path=self._video,
+            target_path=video_path,
             output_path=swapped_video_path,
             execution_provider=self._execution_provider,
-            verbose=True
+            verbose=True,
+            resize_to_1080=RESIZE_TO_1080
         )
 
+        self._swaps_completed[index] = swapped_video_path
         self._swapped_video = swapped_video_path
-        self._timestamps[step] = identifier
-        logging.info(f"Face swapping completed successfully! Saved to {swapped_video_path}")
+        logging.info(f"Face swapping for video {index+1} completed successfully! Saved to {swapped_video_path}")
+
+        # Copy face-swapped video to Google Drive
+        self._copy_to_drive(swapped_video_path, index)
+
+        # Check if all swaps are completed
+        if all(s is not None for s in self._swaps_completed):
+          self._timestamps["video"] = identifier
+          self._timestamps["swap"] = identifier
+          logging.info("All face swaps and generations completed successfully!")
       except Exception as e:
-        logging.error(f"Error during face swapping: {e}")
+        logging.error(f"Error during face swapping for video {index+1}: {e}")
         self._timestamps[step] = "failed"
 
     # Execute face-swapping in a background thread to keep execution non-blocking
     thread = threading.Thread(target=run_swap, daemon=True)
     thread.start()
+
+
+  def _copy_to_drive(self, result_path: str, index: int):
+    import shutil
+    try:
+      dest_filename = DRIVE_FILENAMES[index]
+      dest_path = os.path.join(DRIVE_FOLDER, dest_filename)
+      os.makedirs(DRIVE_FOLDER, exist_ok=True)
+      logging.info(f"Copying final video {index+1} from '{result_path}' to '{dest_path}'...")
+      shutil.copy(result_path, dest_path)
+      logging.info(f"Copying video {index+1} to Drive succeeded.")
+    except Exception as e:
+      logging.error(f"Failed to copy video {index+1} to Drive: {e}")
 
 
   def generate(self, celebrity: str, show_title: str, source_face_path: str = None, sentence: int = 1):

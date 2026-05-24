@@ -49,6 +49,7 @@ class FaceSwapper(object):
     self.current_deepfake = {"image": None, "byte_string":None, "timestamp": 0, "active": False}
     self.current_faces = []
     self.target_embedding = None
+    self.camera_streaming = True
 
     if not cli_mode:
       # Start the camera.
@@ -122,7 +123,36 @@ class FaceSwapper(object):
     return {"many_faces": modules.globals.many_faces,
             "faces": self.current_faces,
             "active": self.current_deepfake["active"],
-            "background_removal": self.background_removal}
+            "background_removal": self.background_removal,
+            "camera_streaming": self.camera_streaming}
+
+  def start_camera(self):
+    if not self.camera_streaming:
+      utils.log("Starting camera...", "info")
+      self._cap = cv2.VideoCapture(self._device)
+      self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+      self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+      self._cap.set(cv2.CAP_PROP_FPS, 60)
+      self.camera_streaming = True
+
+  def stop_camera(self):
+    if self.camera_streaming:
+      utils.log("Stopping camera...", "info")
+      self.camera_streaming = False
+      if self._cap is not None:
+        self._cap.release()
+        self._cap = None
+      # Generate placeholder frame when camera stops
+      placeholder = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+      cv2.putText(placeholder, "Camera Stopped", (self._width // 2 - 150, self._height // 2),
+                  cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2, cv2.LINE_AA)
+      self.current_camera["image"] = placeholder
+      self.current_camera["timestamp"] = time.time()
+      self.current_camera["byte_string"] = utils.write_numpy_to_byte_string(placeholder)
+
+      self.current_deepfake["image"] = placeholder
+      self.current_deepfake["byte_string"] = utils.write_numpy_to_byte_string(placeholder)
+      self.current_deepfake["timestamp"] = time.time()
 
 
   def _store_source_image(self, cv2_image):
@@ -229,12 +259,18 @@ class FaceSwapper(object):
     delta_t_frame = 0
 
     while True:
+      if not self.camera_streaming or self._cap is None:
+        time.sleep(0.1)
+        continue
 
       # Read the camera and crash if no image.
       camera_return, camera_buffer = self._cap.read()
       if not camera_return:
         utils.log("Cannot get camera input.", "error")
-        exit(0)
+        if not self.camera_streaming:
+          continue
+        time.sleep(0.1)
+        continue
       camera_frame = camera_buffer.copy()
 
       # Resize the camera frame to the specified width and height.
@@ -287,7 +323,8 @@ def swap_video(source_path: str,
                output_path: str,
                execution_provider: str = 'cuda',
                max_memory: int = None,
-               verbose: bool = True) -> None:
+               verbose: bool = True,
+               resize_to_1080: bool = False) -> None:
   """
   Perform face swapping on all frames of the target video using the source face image.
   Saves the result to output_path and merges the original audio.
@@ -299,6 +336,7 @@ def swap_video(source_path: str,
     execution_provider (str): ONNX execution provider (e.g. cpu, cuda, directml)
     max_memory (int, optional): Maximum amount of RAM in GB. If None, suggests max memory automatically.
     verbose (bool): If True, prints progress details to stdout.
+    resize_to_1080 (bool): If True, resizes and reshapes to 1920x1080 (adds black bars on the side if vertical).
   """
 
   # Check paths.
@@ -353,10 +391,17 @@ def swap_video(source_path: str,
     print(f"Total Frames to Process: {total_frames}")
     print("--------------------------------------------------")
 
+  # Determine final output dimensions
+  out_width = width
+  out_height = height
+  if resize_to_1080:
+    out_width = 1920
+    out_height = 1080
+
   # Initialize video writer.
   temp_output = output_path + ".temp.mp4"
   fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-  out = cv2.VideoWriter(temp_output, fourcc, fps, (width, height))
+  out = cv2.VideoWriter(temp_output, fourcc, fps, (out_width, out_height))
   if not out.isOpened():
     cap.release()
     raise IOError(f"Could not open output video writer for '{output_path}'.")
@@ -373,6 +418,26 @@ def swap_video(source_path: str,
 
       # Swap faces in the frame
       processed_frame = swapper._process_frame(source_face, frame)
+
+      # Optional resize and reshape to 1920x1080
+      if resize_to_1080:
+        h, w = processed_frame.shape[:2]
+        if h > w:
+          # Vertical mode: scale proportionally to height = 1080, pad sides with black bars
+          scale = 1080.0 / h
+          new_w = int(w * scale)
+          new_w = max(1, new_w)
+          resized_sub = cv2.resize(processed_frame, (new_w, 1080))
+          
+          # Create black background and center the frame
+          black_bg = np.zeros((1080, 1920, 3), dtype=np.uint8)
+          x_offset = (1920 - new_w) // 2
+          black_bg[:, x_offset:x_offset + new_w] = resized_sub
+          processed_frame = black_bg
+        else:
+          # Landscape or square: resize directly to 1920x1080
+          processed_frame = cv2.resize(processed_frame, (1920, 1080))
+
       # Write the processed frame to output video file
       out.write(processed_frame)
 

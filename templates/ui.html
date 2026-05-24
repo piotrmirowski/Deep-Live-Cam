@@ -49,6 +49,17 @@
             Bg kept
           </label>
         </td>
+        <td>
+          <label class="switch">
+            <input type="checkbox" id="camera_streaming_button" width=96px checked onclick="toggleCameraStreaming()">
+            <span class="slider round"></span>
+          </label>
+        </td>
+        <td align="left" width=96px>
+          <label class="caption" id="camera_streaming_button_state" align="left">
+            Streaming
+          </label>
+        </td>
         <td class="padded-cell">
           <button class="command" onclick="takePicture()" align="center">Take picture</button>
         </td>
@@ -57,6 +68,7 @@
         </td>
         <td class="padded-cell">
           <input type="text" id="search_query" placeholder="Enter image search query..."
+            oninput="document.getElementById('generator_celebrity').value = this.value"
             onkeydown="if(event.key === 'Enter') performSearch()" />
         </td>
       </tr>
@@ -68,16 +80,8 @@
           [ CELEBRITY GENERATOR ]
         </td>
         <td class="padded-cell">
-          <input type="text" id="generator_celebrity" class="generator-input" placeholder="Celebrity Name (e.g. Tom Cruise)" />
-        </td>
-        <td class="padded-cell">
-          <input type="text" id="generator_title" class="generator-input" placeholder="Show Title (e.g. Improbotics)" />
-        </td>
-        <td class="padded-cell">
-          <select id="generator_sentence" class="generator-select">
-            <option value="1">Sentence 1</option>
-            <option value="2">Sentence 2</option>
-          </select>
+          <input type="text" id="generator_celebrity" class="generator-input"
+            placeholder="Celebrity Name (e.g. Tom Cruise)" />
         </td>
         <td class="padded-cell">
           <button class="command" id="btn_generate" onclick="startGeneration()">Generate Video</button>
@@ -93,13 +97,8 @@
       <div id="search_results">
         <!-- Images will appear here -->
       </div>
-      
-      <!-- Generated Video Preview Container -->
-      <div id="generation_preview_container">
-        <div class="generator-header">[ GENERATED VIDEO ]</div>
-        <video id="generation_video_player" controls loop></video>
-        <div id="generation_info"></div>
-      </div>
+
+
     </div>
   </div>
 
@@ -227,6 +226,46 @@
       switchBgRemove(true);
     } else {
       switchBgKept(true);
+    }
+  };
+
+
+  // Toggle for camera streaming
+  function switchCameraStreaming(force = false) {
+    if ((force == true) || (camera_streaming_button.checked == false)) {
+      sendGetQuery("start_camera");
+      showCameraStreaming();
+    }
+  };
+  function switchCameraPaused(force = false) {
+    if ((force == true) || (camera_streaming_button.checked == true)) {
+      sendGetQuery("stop_camera");
+      showCameraPaused();
+    }
+  };
+  function showCameraPaused() {
+    if (camera_streaming_button.checked == true) {
+      camera_streaming_button.checked = false;
+    }
+    const caption = document.getElementById('camera_streaming_button_state');
+    if (caption.innerText != "Cam paused") {
+      caption.innerText = "Cam paused";
+    }
+  };
+  function showCameraStreaming() {
+    if (camera_streaming_button.checked == false) {
+      camera_streaming_button.checked = true;
+    }
+    const caption = document.getElementById('camera_streaming_button_state');
+    if (caption.innerText != "Streaming") {
+      caption.innerText = "Streaming";
+    }
+  };
+  function toggleCameraStreaming() {
+    if (camera_streaming_button.checked == true) {
+      switchCameraStreaming(true);
+    } else {
+      switchCameraPaused(true);
     }
   };
 
@@ -366,6 +405,13 @@
         showBgKept();
       }
     }
+    if ("camera_streaming" in status) {
+      if (status["camera_streaming"] == true) {
+        showCameraStreaming();
+      } else {
+        showCameraPaused();
+      }
+    }
   });
 
 
@@ -374,29 +420,23 @@
 
   function startGeneration() {
     const celebrityInput = document.getElementById('generator_celebrity');
-    const titleInput = document.getElementById('generator_title');
-    const sentenceSelect = document.getElementById('generator_sentence');
+    const title = "Improbotics";
     const celebrity = celebrityInput.value.trim();
-    const title = titleInput.value.trim();
-    const sentence = sentenceSelect.value;
-    
+
     if (!celebrity || !title) {
       alert("Please enter both a Celebrity Name and a Show Title.");
       return;
     }
-    
+
     const btn = document.getElementById('btn_generate');
     btn.disabled = true;
     btn.innerText = "Generating...";
-    
+
     const statusText = document.getElementById('generation_status_text');
     statusText.innerText = "Initializing generation pipeline...";
     statusText.style.color = "#aa0000";
-    
-    // Reset video player and hide
-    document.getElementById('generation_preview_container').style.display = 'none';
 
-    fetch('/generate_celebrity?celebrity=' + encodeURIComponent(celebrity) + '&title=' + encodeURIComponent(title) + '&sentence=' + encodeURIComponent(sentence))
+    fetch('/generate_celebrity?celebrity=' + encodeURIComponent(celebrity) + '&title=' + encodeURIComponent(title) + '&sentence=1')
       .then(response => response.json())
       .then(data => {
         if (data.status === 'success') {
@@ -426,7 +466,7 @@
       .then(data => {
         const statusText = document.getElementById('generation_status_text');
         const btn = document.getElementById('btn_generate');
-        
+
         if (data.status === 'idle') {
           if (generationInterval) {
             clearInterval(generationInterval);
@@ -437,7 +477,7 @@
           statusText.innerText = "";
           return;
         }
-        
+
         // Format step display
         let stepLabels = {
           "description": "Description",
@@ -446,15 +486,15 @@
           "video": "Veo Video",
           "swap": "Face Swap"
         };
-        
+
         let stepsText = [];
         let steps = ["description", "voice_description", "image", "video", "swap"];
-        
+
         for (let i = 0; i < steps.length; i++) {
           let step = steps[i];
           let val = data.steps[step];
           let statusIndicator = "";
-          
+
           if (val === "failed") {
             statusIndicator = "FAIL";
           } else if (val !== 0) {
@@ -466,9 +506,9 @@
           }
           stepsText.push(stepLabels[step] + ": " + statusIndicator);
         }
-        
+
         statusText.innerText = "Pipeline: [" + data.status.toUpperCase() + "] | " + stepsText.join(" | ");
-        
+
         if (data.status === 'completed') {
           if (generationInterval) {
             clearInterval(generationInterval);
@@ -478,21 +518,6 @@
           btn.innerText = "Generate Video";
           statusText.innerText = "Generation finished successfully!";
           statusText.style.color = "#00ff00";
-          
-          // Show video preview
-          const videoPlayer = document.getElementById('generation_video_player');
-          const videoUrl = data.swapped_video ? data.swapped_video : data.video;
-          
-          if (videoUrl) {
-            videoPlayer.src = videoUrl + '?t=' + new Date().getTime();
-            document.getElementById('generation_preview_container').style.display = 'flex';
-            
-            let info = `<strong>Celebrity:</strong> ${data.celebrity}<br><strong>Show:</strong> ${data.show_title}`;
-            if (data.swapped_video) {
-              info += `<br><span style="color:#00ff00; font-weight:bold;">Face Swapped Successfully</span>`;
-            }
-            document.getElementById('generation_info').innerHTML = info;
-          }
         } else if (data.status === 'failed') {
           if (generationInterval) {
             clearInterval(generationInterval);

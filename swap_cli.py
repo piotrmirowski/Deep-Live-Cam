@@ -7,8 +7,6 @@ import os
 # Add root directory to python path if not already present
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from run_deep_fake import FaceSwapper
-from modules import core
 import deep_fake
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tiff'}
@@ -24,6 +22,7 @@ def main():
   parser.add_argument('-o', '--output', default=None, help='Path to save processed file (defaults to images/output.jpg for images or images/output.mp4 for videos)')
   parser.add_argument('--execution-provider', help='ONNX execution provider (e.g. cpu, cuda, directml)', default='cuda')
   parser.add_argument('--max-memory', type=int, default=None, help='Maximum amount of RAM in GB')
+  parser.add_argument('--resize-1080', action='store_true', help='Resize and reshape to 1920x1080 (adds black bars on the side if vertical)')
   args = parser.parse_args()
 
   # Check if target exists
@@ -64,7 +63,8 @@ def main():
           output_path=output_path,
           execution_provider=args.execution_provider,
           max_memory=args.max_memory,
-          verbose=True
+          verbose=True,
+          resize_to_1080=args.resize_1080
       )
   except KeyboardInterrupt:
     print("\nAborted by user.")

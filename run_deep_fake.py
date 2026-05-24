@@ -82,6 +82,7 @@ def deepfake_stream(face_swapper: FaceSwapper):
       if latest_byte_string:
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + latest_byte_string + b'\r\n')
+        time.sleep(0.04)
       else:
         time.sleep(0.001)
 
@@ -225,6 +226,22 @@ def run_flask(face_swapper, opts):
     nonlocal face_swapper
     face_swapper.current_deepfake["active"] = False
     return str("inactive")
+
+
+  @app.route("/start_camera")
+  @cross_origin(supports_credentials=True)
+  def start_camera():
+    nonlocal face_swapper
+    face_swapper.start_camera()
+    return str("camera_started")
+
+
+  @app.route("/stop_camera")
+  @cross_origin(supports_credentials=True)
+  def stop_camera():
+    nonlocal face_swapper
+    face_swapper.stop_camera()
+    return str("camera_stopped")
 
 
   @app.route("/many_faces")
@@ -399,7 +416,9 @@ def run_flask(face_swapper, opts):
       "show_title": generator_instance._show_title,
       "image": f"/images/{os.path.basename(generator_instance._image_filename)}" if generator_instance._image_filename else None,
       "video": f"/images/{os.path.basename(generator_instance._video)}" if generator_instance._video else None,
-      "swapped_video": f"/images/{os.path.basename(generator_instance._swapped_video)}" if generator_instance._swapped_video else None
+      "swapped_video": f"/images/{os.path.basename(generator_instance._swapped_video)}" if generator_instance._swapped_video else None,
+      "videos": [f"/images/{os.path.basename(v)}" for v in generator_instance._videos_completed if v] if hasattr(generator_instance, '_videos_completed') else [],
+      "swapped_videos": [f"/images/{os.path.basename(s)}" for s in generator_instance._swaps_completed if s] if hasattr(generator_instance, '_swaps_completed') else []
     }
     return flask.jsonify(response)
 
