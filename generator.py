@@ -31,12 +31,11 @@ PROMPT_VOICE = (
     "and any other relevant features. " +
     "Write that description in a single sentence of 10 words.")
 SENTENCE_01 = (
-    "Hello friends! I am on my way to your show! [SHOW_NAME]! " +
-    "Make sure you run the vote to eliminate one of the contestants."
+    "Hello everyone! I am on my way. In the meantime, you have two minutes to deliberate. " +
+    "One of you has to go home."
 )
 SENTENCE_02 = (
-    "Don't forget to vote. One of the contestants needs to go! " +
-    "I'll be there in 2 minutes."
+    "Hey! Time's up. Cast your votes now."
 )
 PROMPT_VIDEO = (
     "A high-quality cinematic portrait video showing the person described, "
@@ -92,6 +91,7 @@ class Generator:
       message = SENTENCE_02.replace("[SHOW_NAME]", show_title)
     else:
       message = SENTENCE_01.replace("[SHOW_NAME]", show_title)
+    message = message.replace("[CELEBRITY]", self._celebrity)
     return PROMPT_VIDEO.replace("[MESSAGE]", message).replace("[VOICE_DESCRIPTION]", self._voice_description)
 
 
@@ -250,6 +250,7 @@ class Generator:
           self._timestamps["swap"] = "failed"
 
     video_prompt = self._prompt_video(self._show_title)
+    print(video_prompt)
 
     def run_veo():
       self._veo.generate_video(
