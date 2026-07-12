@@ -382,8 +382,16 @@
   }, 50);
 
 
+  let lastSearchImage = null;
+
   // Callback for the status update
   socket.on('status-update', function (status) {
+    if ("search_image" in status) {
+      if (status["search_image"] !== lastSearchImage) {
+        lastSearchImage = status["search_image"];
+        loadExistingImages();
+      }
+    }
     if ("active" in status) {
       if (status["active"] == true) {
         showRunning();

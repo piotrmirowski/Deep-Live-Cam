@@ -50,6 +50,7 @@ class FaceSwapper(object):
     self.current_faces = []
     self.target_embedding = None
     self.camera_streaming = True
+    self.search_image = None
 
     if not cli_mode:
       # Start the camera.
@@ -124,7 +125,8 @@ class FaceSwapper(object):
             "faces": self.current_faces,
             "active": self.current_deepfake["active"],
             "background_removal": self.background_removal,
-            "camera_streaming": self.camera_streaming}
+            "camera_streaming": self.camera_streaming,
+            "search_image": self.search_image}
 
   def start_camera(self):
     if not self.camera_streaming:

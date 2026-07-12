@@ -21,6 +21,7 @@ import mimetypes
 _TEMPORARY_IMAGE_PATH = "images/temp.jpg"
 _CAMERA_IMAGE_PATH = "images/camera.jpg"
 _KEYS = ['bbox', 'kps', 'gender', 'age']
+_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
 
 
 parser = argparse.ArgumentParser(description='Deep Fake server')
@@ -289,6 +290,7 @@ def run_flask(face_swapper, opts):
   @cross_origin(supports_credentials=True)
   def search(query):
     try:
+      print(f"Searching for {query}")
       with ddgs.DDGS() as ddgs_search:
         results = ddgs_search.images(
             query=query,
@@ -301,7 +303,8 @@ def run_flask(face_swapper, opts):
       for index, result in enumerate(results):
         image_url = result.get('image')
         try:
-          response = requests.get(image_url, timeout=10)
+          headers = {"User-Agent": _USER_AGENT}
+          response = requests.get(image_url, timeout=10, headers=headers)
           response.raise_for_status()
           img = utils.get_image_from_bytes(response.content)
           
@@ -317,6 +320,8 @@ def run_flask(face_swapper, opts):
             break
         except Exception as e:
           utils.log(f"Could not download image {image_url}: {e}", "error")
+      if downloaded:
+        face_swapper.search_image = f"{query}_{time.time()}"
       return flask.jsonify({"status": "success", "images": downloaded})
     except Exception as e:
       return flask.jsonify({"status": "error", "message": str(e)}), 500
