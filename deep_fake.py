@@ -23,6 +23,8 @@ _KEYS = ['bbox', 'kps', 'gender', 'age']
 class FaceSwapper(object):
 
   def __init__(self, opts):
+    self._last_timestamp_stream = 0
+
     # Make sure the images directory exists
     if not os.path.exists("images"):
       os.makedirs("images")
@@ -92,6 +94,10 @@ class FaceSwapper(object):
     modules.globals.execution_threads = 8
     modules.globals.fp_ui['face_enhancer'] = False
     modules.globals.nsfw = False
+
+
+  def ping_stream(self):
+    self._last_timestamp_stream = time.time()
 
 
   def reset_target_embedding(self):
@@ -259,6 +265,9 @@ class FaceSwapper(object):
 
     t_frame = time.time()
     delta_t_frame = 0
+    last_stream_time = self._last_timestamp_stream
+    delta_t_stream = 0
+    stream_fps = 0
 
     while True:
       if not self.camera_streaming or self._cap is None:
@@ -312,7 +321,18 @@ class FaceSwapper(object):
         cam.send(cv2.cvtColor(fake_image, cv2.COLOR_BGR2RGB))
       delta_t_frame = 0.5 * (time.time() - t_frame) + delta_t_frame * 0.5
       t_frame = time.time()
-      utils.log(f"FPS: {1/delta_t_frame:.2f}, size: {delta_t_size:.2f}s, bg: {delta_t_bg:.2f}s, swap: {delta_t_swap:.2f}s", "info")
+
+      # Compute streaming FPS
+      if self._last_timestamp_stream - time.time() < 5:
+        if self._last_timestamp_stream != last_stream_time:
+          dt = self._last_timestamp_stream - last_stream_time
+          delta_t_stream = 0.5 * dt + delta_t_stream * 0.5
+          last_stream_time = self._last_timestamp_stream
+          stream_fps = 1.0 / (delta_t_stream + 1e-8)
+      else:
+        stream_fps = 0
+
+      print(f"[info] \033[36mFPS: {1/delta_t_frame:.2f}\033[0m, \033[31mstream FPS: {stream_fps:.2f}\033[0m, \033[32msize: {delta_t_size:.2f}s\033[0m, \033[33mbg: {delta_t_bg:.2f}s\033[0m, \033[35mswap: {delta_t_swap:.2f}s\033[0m\033[K", end='\r', flush=True)
 
 
   def start(self):

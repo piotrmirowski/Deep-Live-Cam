@@ -52,7 +52,7 @@ def source_stream(face_swapper: FaceSwapper):
   latest_timestamp = 0
   while True:
     if latest_timestamp < face_swapper.source_image["timestamp"]:
-      utils.log(f"stream: {latest_timestamp}", "source_stream")
+      face_swapper.ping_stream()
       latest_timestamp = face_swapper.source_image["timestamp"]
       latest_byte_string = face_swapper.source_image["byte_string"]
       if latest_byte_string is not None:
@@ -73,9 +73,9 @@ def deepfake_stream(face_swapper: FaceSwapper):
   latest_timestamp = 0
   while True:
     if latest_timestamp < face_swapper.current_deepfake["timestamp"]:
-      utils.log(f"stream: {latest_timestamp}", "deepfake_stream")
       latest_timestamp = face_swapper.current_deepfake["timestamp"]
       latest_byte_string = face_swapper.current_deepfake["byte_string"]
+      face_swapper.ping_stream()
       if latest_byte_string is not None:
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + latest_byte_string + b'\r\n')
