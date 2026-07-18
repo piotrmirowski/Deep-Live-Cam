@@ -18,6 +18,23 @@ import utils
 _TEMPORARY_IMAGE_PATH = "images/temp.jpg"
 _CAMERA_IMAGE_PATH = "images/camera.jpg"
 _KEYS = ['bbox', 'kps', 'gender', 'age']
+_OUTPUT_WIDTH = 960
+_OUTPUT_HEIGHT = 540
+
+
+class FaceSwapperOpts:
+  def __init__(self,
+               source_path: str,
+               width: int = _OUTPUT_WIDTH,
+               height: int = _OUTPUT_HEIGHT,
+               max_memory: int = None,
+               execution_provider: str = "cpu"):
+    self.source_path = source_path
+    self.width = width
+    self.height = height
+    self.max_memory = max_memory if max_memory is not None else core.suggest_max_memory()
+    self.execution_provider = [execution_provider]
+    self.cli_mode = True
 
 
 class FaceSwapper(object):
@@ -56,10 +73,10 @@ class FaceSwapper(object):
 
     if not cli_mode:
       # Start the camera.
-      self._cap = cv2.VideoCapture(self._device)  # Use index for the webcam (adjust the index accordingly if necessary)    
-      self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)  # Set the width of the resolution
-      self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)  # Set the height of the resolution
-      self._cap.set(cv2.CAP_PROP_FPS, 60)  # Set the frame rate of the webcam
+      self._cap = cv2.VideoCapture(self._device)
+      self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+      self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+      self._cap.set(cv2.CAP_PROP_FPS, 60)
 
     # Set up the frame processors
     self.setup()
@@ -370,15 +387,11 @@ def swap_video(source_path: str,
   if output_dir and not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-  class FaceSwapperOpts:
-    def __init__(self):
-      self.source_path = source_path
-      self.width = 960
-      self.height = 540
-      self.max_memory = max_memory if max_memory is not None else core.suggest_max_memory()
-      self.execution_provider = [execution_provider]
-      self.cli_mode = True
-  opts = FaceSwapperOpts()
+  opts = FaceSwapperOpts(
+    source_path,
+    max_memory=max_memory,
+    execution_provider=execution_provider
+  )
 
   if verbose:
     print("--------------------------------------------------")
@@ -526,15 +539,13 @@ def swap_image(source_path: str,
   if output_dir and not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-  class FaceSwapperOpts:
-    def __init__(self):
-      self.source_path = source_path
-      self.width = 960
-      self.height = 540
-      self.max_memory = max_memory if max_memory is not None else core.suggest_max_memory()
-      self.execution_provider = [execution_provider]
-      self.cli_mode = True
-  opts = FaceSwapperOpts()
+  opts = FaceSwapperOpts(
+    source_path,
+    width,
+    height,
+    max_memory,
+    execution_provider
+  )
 
   if verbose:
     print("--------------------------------------------------")
