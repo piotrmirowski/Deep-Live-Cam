@@ -18,8 +18,9 @@ import utils
 _TEMPORARY_IMAGE_PATH = "images/temp.jpg"
 _CAMERA_IMAGE_PATH = "images/camera.jpg"
 _KEYS = ['bbox', 'kps', 'gender', 'age']
-_OUTPUT_WIDTH = 960
-_OUTPUT_HEIGHT = 540
+_OUTPUT_WIDTH = 720  # 960
+_OUTPUT_HEIGHT = 540  # 540
+_OUTPUT_FPS = 60
 
 
 class FaceSwapperOpts:
@@ -58,14 +59,18 @@ class FaceSwapper(object):
         self._device = utils.list_webcams(opts.device)
     else:
       self._device = None
-    self._width = opts.width
-    self._height = opts.height
+    self._camera_width = opts.width
+    self._camera_height = opts.height
+    aspect_ratio = self._camera_width / self._camera_height
+    self._output_height = _OUTPUT_HEIGHT
+    # self._output_width = _OUTPUT_WIDTH
+    self._output_width = int(_OUTPUT_HEIGHT * aspect_ratio)
     self._init(opts)
 
     # Current image and deepfake storage
     self.source_image = {"image": None, "annotated_image": None, "timestamp": 0}
     self.current_camera = {"image": None, "byte_string": None, "timestamp": 0}
-    self.current_deepfake = {"image": None, "byte_string":None, "timestamp": 0, "active": False}
+    self.current_deepfake = {"image": None, "byte_string": None, "timestamp": 0, "active": False}
     self.current_faces = []
     self.target_embedding = None
     self.camera_streaming = True
@@ -74,9 +79,13 @@ class FaceSwapper(object):
     if not cli_mode:
       # Start the camera.
       self._cap = cv2.VideoCapture(self._device)
-      self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-      self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+      self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._camera_width)
+      self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._camera_height)
       self._cap.set(cv2.CAP_PROP_FPS, 60)
+      print(f"[camera] Camera device index: {self._device}")
+      print(f"[camera] Camera Resolution: {self._camera_width}x{self._camera_height}")
+      print(f"[camera] Suggested Resolution: {_OUTPUT_WIDTH}x{_OUTPUT_HEIGHT}")
+      print(f"[camera] Output Resolution: {self._output_width}x{self._output_height}")
 
     # Set up the frame processors
     self.setup()
@@ -155,8 +164,8 @@ class FaceSwapper(object):
     if not self.camera_streaming:
       utils.log("Starting camera...", "info")
       self._cap = cv2.VideoCapture(self._device)
-      self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-      self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+      self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._camera_width)
+      self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._camera_height)
       self._cap.set(cv2.CAP_PROP_FPS, 60)
       self.camera_streaming = True
 
@@ -168,8 +177,9 @@ class FaceSwapper(object):
         self._cap.release()
         self._cap = None
       # Generate placeholder frame when camera stops
-      placeholder = np.zeros((self._height, self._width, 3), dtype=np.uint8)
-      cv2.putText(placeholder, "Camera Stopped", (self._width // 2 - 150, self._height // 2),
+      placeholder = np.zeros((self._output_height, self._output_width, 3), dtype=np.uint8)
+      cv2.putText(placeholder, "Camera Stopped",
+                  (self._output_width // 2 - 150, self._output_height // 2),
                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2, cv2.LINE_AA)
       self.current_camera["image"] = placeholder
       self.current_camera["timestamp"] = time.time()
@@ -292,6 +302,7 @@ class FaceSwapper(object):
         continue
 
       # Read the camera and crash if no image.
+      t0 = time.time()
       camera_return, camera_buffer = self._cap.read()
       if not camera_return:
         utils.log("Cannot get camera input.", "error")
@@ -300,41 +311,42 @@ class FaceSwapper(object):
         time.sleep(0.1)
         continue
       camera_frame = camera_buffer.copy()
+      delta_t_read = time.time() - t0
 
       # Resize the camera frame to the specified width and height.
-      t0 = time.time()
-      camera_frame = cv2.resize(camera_frame, (self._width, self._height))
-      delta_t_size = time.time() - t0
+      t1 = time.time()
+      camera_frame = cv2.resize(camera_frame, (self._output_width, self._output_height))
+      delta_t_size = time.time() - t1
 
       # Create a copy of the camera frame and store it.
+      t2 = time.time()
       self.current_camera["image"] = camera_frame.copy()
       self.current_camera["timestamp"] = time.time()
       self.current_camera["byte_string"] = utils.write_numpy_to_byte_string(self.current_camera["image"])
+      delta_t_copy = time.time() - t2
 
       # Process the camera frame to create the deep fake.
+      t3 = time.time()
       fake_image = camera_frame.copy()
-      delta_t_bg = 0
       if self.background_removal:
-        t0 = time.time()
         fake_image = rembg.remove(fake_image, session=self.rembg_session)[:][:, :, :3]
-        delta_t_bg = time.time() - t0
-      delta_t_swap = 0
+      delta_t_bg = time.time() - t3
+      t4 = time.time()
       if self.current_deepfake["active"] is True:
-        t0 = time.time()
         source_face = self.source_image["annotated_image"]
         fake_image = self._process_frame(source_face, fake_image)
-        delta_t_swap = time.time() - t0
       else:
         self.target_embedding = None
         many_faces = get_many_faces(fake_image)
         self._store_face_stats(many_faces)
+      delta_t_swap = time.time() - t4
 
       # Convert the image to RGB format to display it with Tkinter and store it.
       self.current_deepfake["image"] = fake_image
       self.current_deepfake["byte_string"] = utils.write_numpy_to_byte_string(self.current_deepfake["image"])
       self.current_deepfake["timestamp"] = time.time()
 
-      with pyvirtualcam.Camera(width=self._width, height=self._height, fps=20) as cam:
+      with pyvirtualcam.Camera(width=self._output_width, height=self._output_height, fps=_OUTPUT_FPS) as cam:
         cam.send(cv2.cvtColor(fake_image, cv2.COLOR_BGR2RGB))
       delta_t_frame = 0.5 * (time.time() - t_frame) + delta_t_frame * 0.5
       t_frame = time.time()
@@ -349,7 +361,14 @@ class FaceSwapper(object):
       else:
         stream_fps = 0
 
-      print(f"[info] \033[36mFPS: {1/delta_t_frame:.2f}\033[0m, \033[31mstream FPS: {stream_fps:.2f}\033[0m, \033[32msize: {delta_t_size:.2f}s\033[0m, \033[33mbg: {delta_t_bg:.2f}s\033[0m, \033[35mswap: {delta_t_swap:.2f}s\033[0m\033[K", end='\r', flush=True)
+      print(f"[info] \033[36mFPS: {1/delta_t_frame:.2f}\033[0m, "
+            f"\033[31mstream FPS: {stream_fps:.2f}\033[0m, "
+            f"\033[32mread: {delta_t_read:.3f}s\033[0m, "
+            f"\033[32msize: {delta_t_size:.3f}s\033[0m, "
+            f"\033[32mcopy: {delta_t_copy:.3f}s\033[0m, "
+            f"\033[33mbg: {delta_t_bg:.2f}s\033[0m, "
+            f"\033[35mswap: {delta_t_swap:.2f}s\033[0m\033[K",
+            end='\r', flush=True)
 
 
   def start(self):
@@ -539,10 +558,16 @@ def swap_image(source_path: str,
   if output_dir and not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
+  # Read target image.
+  target_image = cv2.imread(target_path)
+  if target_image is None:
+    raise IOError(f"Could not open target image '{target_path}' using OpenCV.")
+  target_height, target_width = target_image.shape[:2]
+
   opts = FaceSwapperOpts(
     source_path,
-    width,
-    height,
+    target_width,
+    target_height,
     max_memory,
     execution_provider
   )
@@ -562,11 +587,6 @@ def swap_image(source_path: str,
   source_face = swapper.source_image["annotated_image"]
   if not source_face:
     raise ValueError(f"No face detected in the source image '{source_path}'.")
-
-  # Read target image.
-  target_image = cv2.imread(target_path)
-  if target_image is None:
-    raise IOError(f"Could not open target image '{target_path}' using OpenCV.")
 
   start_time = time.time()
   try:

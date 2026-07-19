@@ -10,7 +10,7 @@
     body {
       margin: 0;
       padding: 0;
-      height: 100%;
+      height: 100vh;
       background-color: black;
       overflow: hidden;
     }
@@ -42,17 +42,25 @@
     }
 
     /* Stream + overlay wrapper */
+    #div_stream {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100vw;
+      height: 100vh;
+    }
+
     #stream-wrapper {
       position: relative;
-      display: block;
-      width: 100%;
+      display: inline-block;
+      height: 100vh;
       line-height: 0;
     }
 
     #stream {
       display: block;
-      width: 100%;
-      height: auto;
+      width: auto;
+      height: 100vh;
     }
 
     /* Canvas sits exactly on top of the img; pointer-events:none lets clicks fall through */
@@ -85,8 +93,8 @@
   var ctx = canvas.getContext('2d');
 
   // Native stream resolution (set once the img loads its first frame).
-  // Default matches the server defaults (960 × 540).
-  var NATIVE_W = 960;
+  // Default matches the server defaults (720 × 540).
+  var NATIVE_W = 720;
   var NATIVE_H = 540;
 
   streamImg.addEventListener('load', function () {

@@ -10,12 +10,28 @@
     <style>
       /* Body of page */
       body {
-        height: 100%;
+        margin: 0;
+        padding: 0;
+        height: 100vh;
         background-position: center;
         background-repeat: no-repeat;
         background-size: cover;
         background-color: black;
         overflow: hidden;
+      }
+
+      #div_stream {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      #stream {
+        display: block;
+        width: auto;
+        height: 100vh;
       }
 
     </style>
@@ -30,7 +46,7 @@
   <body class="" id="grid">
 
     <div id="div_stream">
-      <img id="stream" width=100% src="/stream">
+      <img id="stream" src="/stream">
     </div>
 
   </body>
