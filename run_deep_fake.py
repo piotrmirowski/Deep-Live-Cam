@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from PIL import ImageFile
+from modules import face_analyser
 import argparse
 import flask
 from flask_cors import CORS, cross_origin
@@ -28,6 +30,7 @@ parser = argparse.ArgumentParser(description='Deep Fake server')
 parser.add_argument('-s', '--source', help='select an source image', dest='source_path',
                     default="templates/einstein.jpg")
 parser.add_argument('--port', help='Port', dest='port', type=int, default=8001)
+parser.add_argument('--alex_server', help='A.L.Ex server', type=str, default="")
 parser.add_argument('--device', help='webcam device', dest='device',
                     type=str, default="Integrated Webcam")
 parser.add_argument('--camera-index', help='webcam device index', dest='camera_index',
@@ -93,6 +96,10 @@ def run_flask(face_swapper, opts):
   utils.log(f"Running Flask app with {opts}", "flask")
   
   generator_instance = None
+  alex_server = getattr(opts, 'alex_server', '')
+  face_swapper.alex_server = alex_server
+  provider = opts.execution_provider[0] if opts.execution_provider else 'cpu'
+  generator_instance = Generator(folder="images", execution_provider=provider)
 
   # Start a Flask app.
   app = flask.Flask(__name__, template_folder="templates")
@@ -118,11 +125,9 @@ def run_flask(face_swapper, opts):
 
   @socketio.on('status')
   def status(data):
-    """Callback for the socketIO returning the current state of narration.""" 
-    nonlocal face_swapper
+    """Callback for the socketIO returning the combined deep-fake + generator state."""
     try:
-      socketio.emit('status-update', face_swapper.status())
-      pass
+      socketio.emit('status-update', _get_combined_status())
     except Exception as e:
       logging.error(f"Error emitting stream status: {e}")
       raise e
@@ -131,7 +136,7 @@ def run_flask(face_swapper, opts):
   @app.route("/")
   @cross_origin(supports_credentials=True)
   def index():
-    with open("templates/index.html", "r") as f:
+    with open("templates/index.html", "r", encoding="utf-8") as f:
       html_ui = f.read()
     return html_ui
 
@@ -139,7 +144,7 @@ def run_flask(face_swapper, opts):
   @app.route("/stage")
   @cross_origin(supports_credentials=True)
   def stage():
-    with open("templates/index_stage.html", "r") as f:
+    with open("templates/index_stage.html", "r", encoding="utf-8") as f:
       html_ui = f.read()
     return html_ui
 
@@ -147,7 +152,7 @@ def run_flask(face_swapper, opts):
   @app.route("/ui")
   @cross_origin(supports_credentials=True)
   def ui():
-    with open("templates/ui.html", "r") as f:
+    with open("templates/ui.html", "r", encoding="utf-8") as f:
       html_ui = f.read()
     return html_ui
 
@@ -286,14 +291,64 @@ def run_flask(face_swapper, opts):
     return str("background_removal_off")
 
 
-  @app.route("/search/<query>", methods=['GET'])
-  @cross_origin(supports_credentials=True)
-  def search(query):
+  def _get_generator_status():
+    """Return a dict describing the current generator state (no Flask response)."""
+    if generator_instance is None:
+      return {"status": "idle"}
+
+    gen_status = "idle"
+    current_step = None
+
+    if generator_instance._start_time is not None:
+      gen_status = "processing"
+
+      for step in GENERATOR_STEPS:
+        if generator_instance._timestamps.get(step) == "failed":
+          gen_status = "failed"
+          current_step = step
+          break
+
+      if gen_status != "failed":
+        for step in GENERATOR_STEPS:
+          if not generator_instance._source_face_path and step == "swap":
+            continue
+          if generator_instance._timestamps.get(step) == 0:
+            current_step = step
+            break
+        if current_step is None:
+          gen_status = "completed"
+
+    steps_progress = {step: generator_instance._timestamps.get(step, 0) for step in GENERATOR_STEPS}
+
+    return {
+      "status": gen_status,
+      "current_step": current_step,
+      "steps": steps_progress,
+      "celebrity": generator_instance._celebrity,
+      "show_title": generator_instance._show_title,
+      "image_description": generator_instance._image_description or "",
+      "voice_description": generator_instance._voice_description or "",
+      "image": f"/images/{os.path.basename(generator_instance._image_filename)}" if generator_instance._image_filename else None,
+      "videos": [f"/images/{os.path.basename(v)}" for v in generator_instance._videos_completed if v],
+      "swapped_videos": [f"/images/{os.path.basename(s)}" for s in generator_instance._swaps_completed if s]
+    }
+
+
+  def _get_combined_status():
+    """Return face_swapper status merged with generator status under 'generator' key."""
+    combined = face_swapper.status()
+    combined["generator"] = _get_generator_status()
+    return combined
+
+
+  def _perform_search(query):
+    nonlocal face_swapper
+    nonlocal generator_instance
     try:
       print(f"Searching for {query}")
       with ddgs.DDGS() as ddgs_search:
         results = ddgs_search.images(
-            query=query,
+            query="face portrait of " + query,
             region="wt-wt",
             safesearch="moderate",
             max_results=opts.num_search_images
@@ -322,9 +377,34 @@ def run_flask(face_swapper, opts):
           utils.log(f"Could not download image {image_url}: {e}", "error")
       if downloaded:
         face_swapper.search_image = f"{query}_{time.time()}"
+        generator_instance.set_celebrity(query)
       return flask.jsonify({"status": "success", "images": downloaded})
     except Exception as e:
       return flask.jsonify({"status": "error", "message": str(e)}), 500
+
+
+  @app.route("/search/<query>", methods=['GET'])
+  @cross_origin(supports_credentials=True)
+  def search(query):
+    return _perform_search(query)
+
+
+  @app.route("/search_external/<query>", methods=['GET'])
+  @cross_origin(supports_credentials=True)
+  def search_external(query):
+    nonlocal alex_server
+    origin = flask.request.headers.get('Origin') or flask.request.referrer or flask.request.remote_addr
+    if origin:
+      alex_server = origin
+      face_swapper.alex_server = origin
+      utils.log(f"Updated alex_server to: {alex_server}", "flask")
+    return _perform_search(query)
+
+
+  @app.route("/ping", methods=['GET'])
+  @cross_origin(supports_credentials=True)
+  def ping():
+    return flask.jsonify(_get_combined_status())
 
 
   @app.route("/source")
@@ -360,10 +440,6 @@ def run_flask(face_swapper, opts):
       source_face_path = opts.source_path
       
     try:
-      # Instantiate or reuse generator
-      provider = opts.execution_provider[0] if opts.execution_provider else 'cpu'
-      generator_instance = Generator(folder="images", execution_provider=provider)
-      
       # Run generation in a background thread to prevent blocking Flask thread/loop
       thread = threading.Thread(
           target=generator_instance.generate,
@@ -380,52 +456,8 @@ def run_flask(face_swapper, opts):
   @app.route("/generation_status", methods=['GET'])
   @cross_origin(supports_credentials=True)
   def generation_status():
-    nonlocal generator_instance
-    if generator_instance is None:
-      return flask.jsonify({"status": "idle"})
-      
-    status = "idle"
-    current_step = None
-    
-    if generator_instance._start_time is not None:
-      status = "processing"
-      
-      # Check for failures
-      for step in GENERATOR_STEPS:
-        if generator_instance._timestamps.get(step) == "failed":
-          status = "failed"
-          current_step = step
-          break
-          
-      if status != "failed":
-        # Find first step that hasn't completed yet
-        for step in GENERATOR_STEPS:
-          if not generator_instance._source_face_path and step == "swap":
-            continue
-          if generator_instance._timestamps.get(step) == 0:
-            current_step = step
-            break
-            
-        if current_step is None:
-          status = "completed"
-          
-    steps_progress = {}
-    for step in GENERATOR_STEPS:
-      steps_progress[step] = generator_instance._timestamps.get(step, 0)
-      
-    response = {
-      "status": status,
-      "current_step": current_step,
-      "steps": steps_progress,
-      "celebrity": generator_instance._celebrity,
-      "show_title": generator_instance._show_title,
-      "image": f"/images/{os.path.basename(generator_instance._image_filename)}" if generator_instance._image_filename else None,
-      "video": f"/images/{os.path.basename(generator_instance._video)}" if generator_instance._video else None,
-      "swapped_video": f"/images/{os.path.basename(generator_instance._swapped_video)}" if generator_instance._swapped_video else None,
-      "videos": [f"/images/{os.path.basename(v)}" for v in generator_instance._videos_completed if v] if hasattr(generator_instance, '_videos_completed') else [],
-      "swapped_videos": [f"/images/{os.path.basename(s)}" for s in generator_instance._swaps_completed if s] if hasattr(generator_instance, '_swaps_completed') else []
-    }
-    return flask.jsonify(response)
+    """Return the combined deep-fake + generator status."""
+    return flask.jsonify(_get_combined_status())
 
 
   @app.route("/stream")

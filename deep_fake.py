@@ -75,6 +75,7 @@ class FaceSwapper(object):
     self.target_embedding = None
     self.camera_streaming = True
     self.search_image = None
+    self.alex_server = getattr(opts, 'alex_server', '')
 
     if not cli_mode:
       # Start the camera.
@@ -158,7 +159,9 @@ class FaceSwapper(object):
             "active": self.current_deepfake["active"],
             "background_removal": self.background_removal,
             "camera_streaming": self.camera_streaming,
-            "search_image": self.search_image}
+            "search_image": self.search_image,
+            "alex_server": getattr(self, 'alex_server', ''),
+            "timestamp": time.time()}
 
   def start_camera(self):
     if not self.camera_streaming:

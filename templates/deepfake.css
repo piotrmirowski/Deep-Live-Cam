@@ -65,15 +65,15 @@ body {
   transition: .4s;
 }
 
-input:checked + .slider {
+input:checked+.slider {
   background-color: #aa0000;
 }
 
-input:focus + .slider {
+input:focus+.slider {
   box-shadow: 0 0 1px #aa0000;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
   -webkit-transform: translateX(26px);
   -ms-transform: translateX(26px);
   transform: translateX(26px);
@@ -133,7 +133,7 @@ a.c1 {
 .main-container {
   display: flex;
   flex-direction: row;
-  height: calc(100vh - 160px);
+  height: calc(100vh - 250px);
   width: 100%;
   margin-top: 10px;
   clear: both;
@@ -246,4 +246,191 @@ a.c1 {
   border: 2px solid #444;
   height: 26px;
   vertical-align: middle;
+}
+
+/* Column wrapper: generated image on top, video links below */
+#gen_image_column {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 180px;
+  height: 100%;
+  background: #111;
+}
+
+/* Generated image */
+#generated_image {
+  flex-shrink: 0;
+  width: 100%;
+  object-fit: contain;
+  border: none;
+  background: #111;
+}
+
+/* Video / swap links panel */
+#gen_video_links {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 4px;
+  overflow-y: auto;
+}
+
+.gen-video-link {
+  display: block;
+  font-family: monospace;
+  font-size: 11px;
+  color: #6699cc;
+  text-decoration: none;
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gen-video-link:hover {
+  background: #1a2a3a;
+  color: #99ccff;
+  text-decoration: underline;
+}
+
+.gen-video-link-swap {
+  color: #cc9944;
+}
+
+.gen-video-link-swap:hover {
+  background: #2a1a00;
+  color: #ffcc66;
+}
+
+/* Generator info panel – step badges + descriptions */
+#gen_info_panel {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #111;
+  border-top: 1px solid #2a2a2a;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#gen_steps_row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+
+.gen-step-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: default;
+  background: #333;
+  color: #666;
+}
+
+.step-pending {
+  background: #222;
+  color: #555;
+}
+
+.step-running {
+  background: #5a3a00;
+  color: #ffaa00;
+  animation: pulse 1s infinite;
+}
+
+.step-done {
+  background: #0a3a0a;
+  color: #44cc44;
+}
+
+.step-failed {
+  background: #3a0000;
+  color: #ff4444;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+#gen_descriptions {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+#gen_image_desc_wrap,
+#gen_voice_desc_wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.gen-desc-label {
+  color: #666;
+  font-family: monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gen-desc-text {
+  color: #aaa;
+  font-family: monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  max-height: 96px;
+  overflow-y: auto;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  padding: 4px 6px;
+  white-space: pre-wrap;
+}
+
+/* Status text colour classes */
+.gen-status-running {
+  color: #ffaa00;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.gen-status-done {
+  color: #44cc44;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.gen-status-failed {
+  color: #ff4444;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+#alex_server_display {
+  color: #888;
+  font-family: monospace;
+  font-size: 13px;
 }

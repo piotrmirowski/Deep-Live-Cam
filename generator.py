@@ -12,7 +12,8 @@ GENERATOR_STEPS = ["description", "voice_description", "image", "video", "swap"]
 PROMPT_DESCRIPTION = (
     "You are writing a prompt for Gemini Nano Banana Pro.\n" +
     "Describe physically the following person in a very detailed manner, " +
-    "mentioning their appearance and clothes (down to the color of the clothes). " +
+    "mentioning their appearance and clothes (down to the color of the clothes, " +
+    "and the shape of their glasses, if they are wearing glasses). " +
     "The person is [CELEBRITY], but do not mention their name. Write that description in a single paragraph. " +
     "Focus your description on the appearance from the waist up, as the person " +
     "is taking a selfie. The camera is not visible on the image, " +
@@ -51,7 +52,7 @@ PROMPT_VIDEO = (
 VIDEO_ASPECT_RATIO = "9:16"
 RESIZE_TO_1080 = True
 DRIVE_FOLDER = r"c:\Users\pimir\My Drive\HumanMachine\Improbotics\Tech\Tech_Reality_2026\Impro_Show_Ctl\assets\vid"
-DRIVE_FILENAMES = ["03 Celebrity 1.mp4", "04 Celebrity 2.mp4"]
+DRIVE_FILENAMES = ["05 Celebrity 1.mp4", "06 Celebrity 2.mp4"]
 
 class Generator:
 
@@ -72,13 +73,15 @@ class Generator:
     self._voice_description = None
     self._image = None
     self._image_filename = None
-    self._video = None
-    self._swapped_video = None
     self._start_time = None
     self._sentence = 1
     self._timestamps = {step: 0 for step in GENERATOR_STEPS}
     self._videos_completed = [None] * len(SENTENCES)
     self._swaps_completed = [None] * len(SENTENCES)
+
+
+  def set_celebrity(self, celebrity: str) -> None:
+    self._celebrity = celebrity
 
 
   def _prompt_description(self, celebrity: str) -> str:
@@ -87,15 +90,6 @@ class Generator:
 
   def _prompt_voice_description(self, celebrity: str) -> str:
     return PROMPT_VOICE.replace("[CELEBRITY]", celebrity)
-
-
-  def _prompt_video(self, show_title: str) -> str:
-    if self._sentence == 2:
-      message = SENTENCE_02.replace("[SHOW_NAME]", show_title)
-    else:
-      message = SENTENCE_01.replace("[SHOW_NAME]", show_title)
-    message = message.replace("[CELEBRITY]", self._celebrity)
-    return PROMPT_VIDEO.replace("[MESSAGE]", message).replace("[VOICE_DESCRIPTION]", self._voice_description)
 
 
   def _log_to_file(self, step: str, prompt: str, response: str, identifier: str):
@@ -203,7 +197,8 @@ class Generator:
         self._image_filename = filename
         print(f"Image generated successfully! Saved to {filename}")
         logging.info("Starting pipelined video generation with Veo...")
-        self._generate_video_for_sentence(0, timestamp)
+        for i in range(len(SENTENCES)):
+          self._generate_video_for_sentence(i, timestamp)
       else:
         logging.warning("No image data found in model response.")
         self._timestamps["video"] = "failed"
@@ -239,7 +234,6 @@ class Generator:
         generated_video.video.save(video_file_path)
 
         self._videos_completed[index] = video_file_path
-        self._video = video_file_path
         print(f"Video {index+1} generated successfully! Saved to {video_file_path}")
 
         # If we are not doing face swap:
@@ -253,11 +247,11 @@ class Generator:
           # Trigger face swapping for this video
           self._generate_swap_for_sentence(index, video_file_path, timestamp)
 
-        # Start generating the next video while processing the swap / continuation
-        next_index = index + 1
-        if next_index < len(SENTENCES):
-          logging.info(f"Pipelining: Starting generation for video {next_index+1}...")
-          self._generate_video_for_sentence(next_index, timestamp)
+        # # Start generating the next video while processing the swap / continuation
+        # next_index = index + 1
+        # if next_index < len(SENTENCES):
+        #   logging.info(f"Pipelining: Starting generation for video {next_index+1}...")
+        #   self._generate_video_for_sentence(next_index, timestamp)
 
       except Exception as e:
         logging.error(f"Error saving generated video {index+1}: {e}")
@@ -301,7 +295,6 @@ class Generator:
         )
 
         self._swaps_completed[index] = swapped_video_path
-        self._swapped_video = swapped_video_path
         logging.info(f"Face swapping for video {index+1} completed successfully! Saved to {swapped_video_path}")
 
         # Copy face-swapped video to Google Drive
@@ -346,6 +339,8 @@ class Generator:
 
 
   def is_done(self) -> bool:
+    if self._start_time is None:
+      return True
     if self._source_face_path:
       return self._timestamps["swap"] != 0 or self._timestamps["swap"] == "failed"
     return self._timestamps["video"] != 0 or self._timestamps["video"] == "failed"
@@ -390,9 +385,11 @@ def main():
   else:
     logging.info("Generation finished successfully.")
     if args.source:
-      logging.info(f"Final face-swapped video is available at: {generator._swapped_video}")
+      completed = [s for s in generator._swaps_completed if s is not None]
+      logging.info(f"Final face-swapped videos: {completed}")
     else:
-      logging.info(f"Generated video is available at: {generator._video}")
+      completed = [v for v in generator._videos_completed if v is not None]
+      logging.info(f"Generated videos: {completed}")
 
 
 if __name__ == "__main__":
