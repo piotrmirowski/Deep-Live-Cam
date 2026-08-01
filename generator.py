@@ -21,33 +21,33 @@ PROMPT_DESCRIPTION = (
     "The image is a selfie-style portrait from a phone's front camera (f/4.6, 24mm). " +
     "The person is looking directly into the lens and smiling, recording a video message. " +
     "The person is sitting at the back of a luxury limousine with black leather seats. " +
-    "The outside view is Brighton Pier and Brighton Dome, " +
-    "with passers-by walking to the beach." +
+    "The outside view is Edinburgh Castle in the distance and The Royal Mile, " +
+    "with performers, street artists and passers-by walking along busy streets." +
     "The image has cinematic natural lighting.\n" +
     "Combine all these elements to write a prompt that contains: " +
     "subject, composition, action, lighting and background description.")
 PROMPT_VOICE = (
     "You are writing a prompt for Veo 3.1 Flash, as a voice coach.\n" +
     "The person is [CELEBRITY]: describe the voice of [CELEBRITY], " +
-    "with all its characteristics, mentioning their accent, dialect, tone, pitch, energy, " +
+    "with all its characteristics, mentioning their regional accent, specific dialect, texture, pitch, pace, energy, emotional tone, " +
     "and any other relevant features useful for a voice actor imitating their voice. " +
-    "Write that description in a single sentence of 15 words.")
+    "Write that description in a single sentence of 20 words.")
 SENTENCES = [
     ("Hello everyone! " +
-    "I am on my way. In the meantime, you have two minutes to deliberate. " +
-    "One of you has to go home."),
+     "I am on my way. In the meantime, you have two minutes to deliberate. " +
+     "One of you has to go home."),
     ("Hey! Time's up. Cast your votes now.")
 ]
 PROMPT_VIDEO = (
-    "A high-quality selfie portrait video showing a person smiling, "
-    "looking directly at the camera, and speak naturally. Soft cinematic lighting, "
-    "subtle lifelike movements, matching composition from the image. "
+    "A high-quality selfie portrait video showing a person smiling, " +
+    "looking directly at the camera, and speak naturally. Soft cinematic lighting, " +
+    "subtle lifelike movements, matching composition from the image. " +
     "Selfie video portrait shot, from phone frontal camera (f/4.6, 24mm). " +
     "The person speaks the message: \"[MESSAGE]\"\n" +
     "The voice of the actor is described in these terms: [VOICE_DESCRIPTION]\n" +
     "The person is sitting at the back of a luxury limousine. " +
-    "The outside view is Brighton Pier and Brighton Dome, " +
-    "with passers-by walking to the beach."
+    "The outside view is Edinburgh Castle in the distance and The Royal Mile, " +
+    "with performers, street artists and passers-by walking along busy streets."
 )
 VIDEO_ASPECT_RATIO = "9:16"
 RESIZE_TO_1080 = True

@@ -12,6 +12,6 @@ python3 run_deep_fake.py  \
 --width 960 \
 --height 540 \
 --execution-provider coreml \
---device 0
+--camera_index 1200
 
 

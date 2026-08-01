@@ -70,6 +70,26 @@
       left: 0;
       pointer-events: none;
     }
+
+    /* Top-right configurable stage message overlay */
+    #stage-message {
+      position: fixed;
+      top: 12px;
+      right: 14px;
+      z-index: 20;
+      max-width: 320px;
+      background: rgba(0, 0, 0, 0.55);
+      color: rgba(255, 255, 255, 0.88);
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: pre-wrap;   /* honour newlines from the text file */
+      word-break: break-word;
+      padding: 8px 11px;
+      border-radius: 6px;
+      pointer-events: none;
+      text-align: right;
+    }
   </style>
 </head>
 
@@ -81,6 +101,8 @@
       <canvas id="face-overlay"></canvas>
     </div>
   </div>
+
+  <div id="stage-message">{{STAGE_MESSAGE}}</div>
 
 </body>
 

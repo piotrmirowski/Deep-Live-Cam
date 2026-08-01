@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-from PIL import ImageFile
-from modules import face_analyser
 import argparse
 import flask
 from flask_cors import CORS, cross_origin
@@ -24,6 +22,7 @@ _TEMPORARY_IMAGE_PATH = "images/temp.jpg"
 _CAMERA_IMAGE_PATH = "images/camera.jpg"
 _KEYS = ['bbox', 'kps', 'gender', 'age']
 _USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+_MESSAGE_STAGE_PATH = "templates/message_stage.txt"
 
 
 parser = argparse.ArgumentParser(description='Deep Fake server')
@@ -33,7 +32,7 @@ parser.add_argument('--port', help='Port', dest='port', type=int, default=8001)
 parser.add_argument('--alex_server', help='A.L.Ex server', type=str, default="")
 parser.add_argument('--device', help='webcam device', dest='device',
                     type=str, default="Integrated Webcam")
-parser.add_argument('--camera-index', help='webcam device index', dest='camera_index',
+parser.add_argument('--camera_index', help='webcam device index', dest='camera_index',
                     type=int, default=None)
 parser.add_argument('--width', help='width in pixels', dest='width',
                     type=int, default=960)
@@ -146,6 +145,12 @@ def run_flask(face_swapper, opts):
   def stage():
     with open("templates/index_stage.html", "r", encoding="utf-8") as f:
       html_ui = f.read()
+    # Load the configurable stage message and inject it as an HTML placeholder.
+    stage_message = ""
+    if os.path.exists(_MESSAGE_STAGE_PATH):
+      with open(_MESSAGE_STAGE_PATH, "r", encoding="utf-8") as mf:
+        stage_message = mf.read().strip()
+    html_ui = html_ui.replace("{{STAGE_MESSAGE}}", stage_message)
     return html_ui
 
 

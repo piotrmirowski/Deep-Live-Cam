@@ -126,7 +126,7 @@ def merge_audio(temp_video_path: str,
       "-map", "1:a?",
       output_video_path
   ]
-  log(f"Command:\n{" ".join(command)}")
+  log(f"Command:\n{' '.join(command)}")
   try:
     subprocess.run(command, check=True)
     if os.path.exists(output_video_path) and os.path.getsize(output_video_path) > 0:
