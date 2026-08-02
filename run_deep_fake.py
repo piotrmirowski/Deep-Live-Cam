@@ -99,6 +99,7 @@ def run_flask(face_swapper, opts):
   face_swapper.alex_server = alex_server
   provider = opts.execution_provider[0] if opts.execution_provider else 'cpu'
   generator_instance = Generator(folder="images", execution_provider=provider)
+  live_message = None
 
   # Start a Flask app.
   app = flask.Flask(__name__, template_folder="templates")
@@ -152,6 +153,19 @@ def run_flask(face_swapper, opts):
         stage_message = mf.read().strip()
     html_ui = html_ui.replace("{{STAGE_MESSAGE}}", stage_message)
     return html_ui
+
+
+  @app.route("/send_message", methods=['POST'])
+  @cross_origin(supports_credentials=True)
+  def send_message():
+    try:
+      message = flask.request.form.get('message', '')
+      print(f"Received message: {message}")
+      nonlocal live_message
+      live_message = message
+      return flask.jsonify({"status": "success"})
+    except Exception as e:
+      return flask.jsonify({"status": "error", "message": str(e)}), 500
 
 
   @app.route("/ui")
@@ -343,6 +357,7 @@ def run_flask(face_swapper, opts):
     """Return face_swapper status merged with generator status under 'generator' key."""
     combined = face_swapper.status()
     combined["generator"] = _get_generator_status()
+    combined["live_message"] = live_message
     return combined
 
 
