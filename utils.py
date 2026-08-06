@@ -109,10 +109,11 @@ def print_progress_bar(iteration: int,
 def merge_audio(temp_video_path: str,
                 original_video_path: str,
                 output_video_path: str) -> None:
-  """Merge original audio from target video into the face-swapped temporary video."""
+  """Merge original audio from target video into the face-swapped temporary video,
+  and encode video to H.264 (yuv420p) for Chrome/browser HTML5 compatibility."""
   
-  # ffmpeg -y -i temp_video -i original_video -c:v copy -c:a copy -map 0:v:0 -map 1:a? output_video
-  log("Merging original audio into final video...")
+  # ffmpeg -y -i temp_video -i original_video -c:v libx264 -pix_fmt yuv420p -c:a aac -map 0:v:0 -map 1:a? -movflags +faststart output_video
+  log("Merging original audio and encoding H.264 video for web compatibility...")
   command = [
       "ffmpeg",
       "-y",
@@ -120,23 +121,46 @@ def merge_audio(temp_video_path: str,
       "-loglevel", "error",
       "-i", temp_video_path,
       "-i", original_video_path,
-      "-c:v", "copy",
-      "-c:a", "copy",
+      "-c:v", "libx264",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
       "-map", "0:v:0",
       "-map", "1:a?",
+      "-movflags", "+faststart",
       output_video_path
   ]
   log(f"Command:\n{' '.join(command)}")
   try:
     subprocess.run(command, check=True)
     if os.path.exists(output_video_path) and os.path.getsize(output_video_path) > 0:
-      log("Successfully merged audio!")
+      log("Successfully merged audio and encoded H.264 video!")
       if os.path.exists(temp_video_path):
         os.remove(temp_video_path)
       return True
   except Exception as e:
-    log(f"Warning: Failed to merge audio using FFmpeg: {e}", msg_type="warning")
-    log("Falling back to silent video.")
+    log(f"Warning: Failed to merge audio and encode H.264 using FFmpeg: {e}", msg_type="warning")
+    log("Attempting fallback encoding without audio map...")
+    fallback_command = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", temp_video_path,
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        output_video_path
+    ]
+    try:
+      subprocess.run(fallback_command, check=True)
+      if os.path.exists(output_video_path) and os.path.getsize(output_video_path) > 0:
+        log("Successfully encoded H.264 video without audio!")
+        if os.path.exists(temp_video_path):
+          os.remove(temp_video_path)
+        return True
+    except Exception as fallback_e:
+      log(f"Warning: Fallback FFmpeg encoding failed: {fallback_e}", msg_type="warning")
+
     if os.path.exists(output_video_path):
       try:
         os.remove(output_video_path)
