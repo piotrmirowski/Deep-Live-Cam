@@ -192,7 +192,7 @@ def run_flask(face_swapper, opts):
     return flask.send_file(filename, download_name=filename, mimetype='text/css')
 
 
-  @app.route('/images/<filename>')
+  @app.route('/images/<path:filename>')
   @cross_origin(supports_credentials=True)
   def return_image(filename):
     """Function for returning images or other generated assets."""
@@ -310,6 +310,13 @@ def run_flask(face_swapper, opts):
     return str("background_removal_off")
 
 
+  def _get_web_path(file_path):
+    if not file_path:
+      return None
+    rel = os.path.relpath(file_path, 'images').replace('\\', '/')
+    return f"/images/{rel}"
+
+
   def _get_generator_status():
     """Return a dict describing the current generator state (no Flask response)."""
     if generator_instance is None:
@@ -347,9 +354,9 @@ def run_flask(face_swapper, opts):
       "show_title": generator_instance._show_title,
       "image_description": generator_instance._image_description or "",
       "voice_description": generator_instance._voice_description or "",
-      "image": f"/images/{os.path.basename(generator_instance._image_filename)}" if generator_instance._image_filename else None,
-      "videos": [f"/images/{os.path.basename(v)}" for v in generator_instance._videos_completed if v],
-      "swapped_videos": [f"/images/{os.path.basename(s)}" for s in generator_instance._swaps_completed if s]
+      "image": _get_web_path(generator_instance._image_filename),
+      "videos": [_get_web_path(v) for v in generator_instance._videos_completed if v],
+      "swapped_videos": [_get_web_path(s) for s in generator_instance._swaps_completed if s]
     }
 
 

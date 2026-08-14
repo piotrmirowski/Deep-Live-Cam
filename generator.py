@@ -4,6 +4,8 @@ import time
 import argparse
 import logging
 import threading
+import shutil
+import unicodedata
 from generation.llm import LLM
 from generation.veo import Veo
 import deep_fake
@@ -31,6 +33,7 @@ PROMPT_VOICE = (
     "The person is [CELEBRITY]: describe the voice of [CELEBRITY], " +
     "with all its characteristics, mentioning their regional accent, specific dialect, texture, pitch, pace, energy, emotional tone, " +
     "and any other relevant features useful for a voice actor imitating their voice. " +
+    "(Remember: do not mention the name of the celebrity in the voice description!)\n" +
     "Write that description in a single sentence of 20 words.")
 SENTENCES = [
     ("Hello everyone! " +
@@ -57,6 +60,7 @@ DRIVE_FILENAMES = ["05 Celebrity 1.mp4", "06 Celebrity 2.mp4"]
 class Generator:
 
   def __init__(self, folder: str = "images", execution_provider: str = "cuda"):
+    self._base_folder = folder
     self._folder = folder
     self._execution_provider = execution_provider
     self._llm = LLM("gemini")
@@ -66,6 +70,7 @@ class Generator:
 
 
   def reset(self):
+    self._folder = self._base_folder
     self._celebrity = ""
     self._show_title = ""
     self._source_face_path = None
@@ -331,10 +336,30 @@ class Generator:
     self.reset()
     self._celebrity = celebrity
     self._show_title = show_title
-    self._source_face_path = source_face_path
     self._sentence = sentence
+
+    nfkd = unicodedata.normalize('NFKD', celebrity)
+    celebrity_clean = "".join(c for c in nfkd if ("a" <= c <= "z" or "A" <= c <= "Z"))
+    if celebrity_clean:
+      self._folder = os.path.join(self._base_folder, celebrity_clean)
+    else:
+      self._folder = self._base_folder
+    os.makedirs(self._folder, exist_ok=True)
+
+    if source_face_path and os.path.exists(source_face_path):
+      copied_source_path = os.path.join(self._folder, os.path.basename(source_face_path))
+      if os.path.abspath(source_face_path) != os.path.abspath(copied_source_path):
+        try:
+          shutil.copy(source_face_path, copied_source_path)
+          logging.info(f"Copied source face image from '{source_face_path}' to '{copied_source_path}'.")
+        except Exception as e:
+          logging.error(f"Failed to copy source face image: {e}")
+      self._source_face_path = copied_source_path
+    else:
+      self._source_face_path = source_face_path
+
     self._start_time = time.time()
-    logging.info(f"Starting generation process for celebrity: {celebrity}")
+    logging.info(f"Starting generation process for celebrity: {celebrity} in folder: {self._folder}")
     self._generate_description(self._start_time)
 
 
