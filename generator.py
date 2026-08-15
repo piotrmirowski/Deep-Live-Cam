@@ -6,6 +6,7 @@ import logging
 import threading
 import shutil
 import unicodedata
+import re
 from generation.llm import LLM
 from generation.veo import Veo
 import deep_fake
@@ -332,6 +333,118 @@ class Generator:
       logging.error(f"Failed to copy video {index+1} to Drive: {e}")
 
 
+  def _load_from_cache(self):
+    """Loads results from existing celebrity folder cache, copies temp.jpg, and copies videos to Drive."""
+    # 1. Copy CELEBRITY_CLEAN/temp.jpg onto temp.jpg (e.g. images/temp.jpg)
+    cached_temp = os.path.join(self._folder, "temp.jpg")
+    if os.path.exists(cached_temp):
+      dst_temp = os.path.join(self._base_folder, "temp.jpg")
+      try:
+        shutil.copy(cached_temp, dst_temp)
+        logging.info(f"Copied '{cached_temp}' to '{dst_temp}'.")
+      except Exception as e:
+        logging.error(f"Failed to copy '{cached_temp}' to '{dst_temp}': {e}")
+      self._source_face_path = cached_temp
+
+    # 2. Extract timestamp and find generated files in folder
+    identifier = None
+    files = os.listdir(self._folder) if os.path.exists(self._folder) else []
+
+    # First look for timestamp in image or log or video filenames
+    for filename in files:
+      m = re.search(r"(?:image|description|voice_description|video_\d+|swap_\d+)_([0-9.]+)\.(?:png|log|mp4)", filename)
+      if m:
+        identifier = m.group(1)
+        break
+
+    if identifier:
+      try:
+        self._start_time = float(identifier)
+      except ValueError:
+        self._start_time = time.time()
+    else:
+      self._start_time = time.time()
+      identifier = f"{self._start_time:.1f}"
+
+    # Load image
+    for filename in files:
+      if filename.startswith("image_") and filename.endswith(".png"):
+        self._image_filename = os.path.join(self._folder, filename)
+        self._timestamps["image"] = identifier
+        try:
+          from PIL import Image
+          self._image = Image.open(self._image_filename)
+        except Exception:
+          pass
+        break
+
+    # Load description
+    for filename in files:
+      if filename.startswith("description_") and filename.endswith(".log"):
+        desc_path = os.path.join(self._folder, filename)
+        self._timestamps["description"] = identifier
+        try:
+          with open(desc_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            if "RESPONSE:\n" in content:
+              self._image_description = content.split("RESPONSE:\n", 1)[1].strip()
+            else:
+              self._image_description = content.strip()
+        except Exception as e:
+          logging.error(f"Failed to read description log: {e}")
+        break
+
+    # Load voice description
+    for filename in files:
+      if filename.startswith("voice_description_") and filename.endswith(".log"):
+        voice_path = os.path.join(self._folder, filename)
+        self._timestamps["voice_description"] = identifier
+        try:
+          with open(voice_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            if "RESPONSE:\n" in content:
+              self._voice_description = content.split("RESPONSE:\n", 1)[1].strip()
+            else:
+              self._voice_description = content.strip()
+        except Exception as e:
+          logging.error(f"Failed to read voice description log: {e}")
+        break
+
+    # Load videos
+    for filename in files:
+      m = re.match(r"^video_(\d+)_.*\.mp4$", filename)
+      if m:
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < len(SENTENCES):
+          self._videos_completed[idx] = os.path.join(self._folder, filename)
+
+    if any(v is not None for v in self._videos_completed):
+      self._timestamps["video"] = identifier
+
+    # Load swapped videos
+    for filename in files:
+      m = re.match(r"^swap_(\d+)_.*\.mp4$", filename)
+      if m:
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < len(SENTENCES):
+          self._swaps_completed[idx] = os.path.join(self._folder, filename)
+
+    if any(s is not None for s in self._swaps_completed):
+      self._timestamps["swap"] = identifier
+
+    logging.info(f"Loaded cached state for {self._celebrity}: image={self._image_filename}, videos={self._videos_completed}, swaps={self._swaps_completed}")
+
+    # 3. Copy to drive
+    if any(s is not None for s in self._swaps_completed):
+      for idx, s_path in enumerate(self._swaps_completed):
+        if s_path and os.path.exists(s_path):
+          self._copy_to_drive(s_path, idx)
+    elif any(v is not None for v in self._videos_completed):
+      for idx, v_path in enumerate(self._videos_completed):
+        if v_path and os.path.exists(v_path):
+          self._copy_to_drive(v_path, idx)
+
+
   def generate(self, celebrity: str, show_title: str, source_face_path: str = None, sentence: int = 1):
     self.reset()
     self._celebrity = celebrity
@@ -341,9 +454,17 @@ class Generator:
     nfkd = unicodedata.normalize('NFKD', celebrity)
     celebrity_clean = "".join(c for c in nfkd if ("a" <= c <= "z" or "A" <= c <= "Z"))
     if celebrity_clean:
-      self._folder = os.path.join(self._base_folder, celebrity_clean)
+      target_folder = os.path.join(self._base_folder, celebrity_clean)
     else:
-      self._folder = self._base_folder
+      target_folder = self._base_folder
+
+    if celebrity_clean and os.path.isdir(target_folder):
+      self._folder = target_folder
+      logging.info(f"Normalized celebrity folder '{self._folder}' exists. Loading from cache...")
+      self._load_from_cache()
+      return
+
+    self._folder = target_folder
     os.makedirs(self._folder, exist_ok=True)
 
     if source_face_path and os.path.exists(source_face_path):
