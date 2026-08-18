@@ -33,7 +33,7 @@ PROMPT_VOICE = (
     "You are writing a prompt for Veo 3.1 Flash, as a voice coach.\n" +
     "The person is [CELEBRITY]: describe the voice of [CELEBRITY], " +
     "with all its characteristics, mentioning their regional accent, specific dialect, texture, pitch, pace, energy, emotional tone, " +
-    "and any other relevant features useful for a voice actor imitating their voice. " +
+    "hoarseness, breathiness and any other relevant features useful for a voice actor imitating their voice. " +
     "(Remember: do not mention the name of the celebrity in the voice description!)\n" +
     "Write that description in a single sentence of 20 words.")
 SENTENCES = [
