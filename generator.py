@@ -3,15 +3,18 @@ import sys
 import time
 import argparse
 import logging
+from pydantic import BaseModel
 import threading
 import shutil
 import unicodedata
 import re
+
 from generation.llm import LLM
 from generation.veo import Veo
 import deep_fake
 
-GENERATOR_STEPS = ["description", "voice_description", "image", "video", "swap"]
+
+GENERATOR_STEPS = ["description", "voice_description", "dialect", "phrases", "image", "video", "swap"]
 PROMPT_DESCRIPTION = (
     "You are writing a prompt for Gemini Nano Banana Pro.\n" +
     "Describe physically the following person in a very detailed manner, " +
@@ -36,12 +39,24 @@ PROMPT_VOICE = (
     "hoarseness, breathiness and any other relevant features useful for a voice actor imitating their voice. " +
     "(Remember: do not mention the name of the celebrity in the voice description!)\n" +
     "Write that description in a single sentence of 20 words.")
+PROMPT_DIALECT = (
+    "You are writing a prompt for Veo 3.1 Flash, as a voice coach.\n" +
+    "The person is [CELEBRITY]: describe the dialect of the voice of [CELEBRITY], " +
+    "which would be useful for a voice actor imitating their voice. " +
+    "(Remember: do not mention the name of the celebrity in the voice description!)\n" +
+    "Write the dialect in 1 to 3 words.")
 SENTENCES = [
     ("Hello everyone! " +
-     "I am on my way. In the meantime, you have two minutes to deliberate. " +
+     "I am on my way, and you have two minutes to deliberate. " +
      "One of you has to go home."),
     ("Hey! Time's up. Cast your votes now.")
 ]
+PROMPT_PHRASES = (
+    f"You are rewriting {len(SENTENCES)} sentences so that they match the speaking style of [CELEBRITY]." +
+    "\n(Remember: do not mention the name of the celebrity in the voice description!)\n" +
+    "Write the sentences in less than 20 words each.\n" +
+    "\n".join([f"({i+1}) {sentence}" for i, sentence in enumerate(SENTENCES)])
+)
 PROMPT_VIDEO = (
     "A high-quality selfie portrait video showing a person smiling, " +
     "looking directly at the camera, and speak naturally. Soft cinematic lighting, " +
@@ -49,6 +64,7 @@ PROMPT_VIDEO = (
     "Selfie video portrait shot, from phone frontal camera (f/4.6, 24mm). " +
     "The person speaks the message: \"[MESSAGE]\"\n" +
     "The voice of the actor is described in these terms: [VOICE_DESCRIPTION]\n" +
+    "The person speaks in the following dialect: [DIALECT]\n" +
     "The person is sitting at the back of a luxury limousine. " +
     "The outside view is Edinburgh Castle in the distance and The Royal Mile, " +
     "with performers, street artists and passers-by walking along busy streets."
@@ -57,6 +73,14 @@ VIDEO_ASPECT_RATIO = "9:16"
 RESIZE_TO_1080 = True
 DRIVE_FOLDER = r"c:\Users\pimir\My Drive\HumanMachine\Improbotics\Tech\Tech_Reality_2026\Impro_Show_Ctl\assets\vid"
 DRIVE_FILENAMES = ["05 Celebrity 1.mp4", "06 Celebrity 2.mp4"]
+
+
+
+class FormatSentences(BaseModel):
+  first: str
+  second: str
+
+
 
 class Generator:
 
@@ -77,6 +101,8 @@ class Generator:
     self._source_face_path = None
     self._image_description = None
     self._voice_description = None
+    self._dialect = None
+    self._phrases = None
     self._image = None
     self._image_filename = None
     self._start_time = None
@@ -96,6 +122,14 @@ class Generator:
 
   def _prompt_voice_description(self, celebrity: str) -> str:
     return PROMPT_VOICE.replace("[CELEBRITY]", celebrity)
+
+
+  def _prompt_dialect(self, celebrity: str) -> str:
+    return PROMPT_DIALECT.replace("[CELEBRITY]", celebrity)
+
+
+  def _prompt_phrases(self, celebrity: str) -> str:
+    return PROMPT_PHRASES.replace("[CELEBRITY]", celebrity)
 
 
   def _log_to_file(self, step: str, prompt: str, response: str, identifier: str):
@@ -121,6 +155,8 @@ class Generator:
         logging.error(f"Error generating description: {response['error']}")
         self._timestamps[step] = "failed"
         self._timestamps["voice_description"] = "failed"
+        self._timestamps["dialect"] = "failed"
+        self._timestamps["phrases"] = "failed"
         self._timestamps["image"] = "failed"
         self._timestamps["video"] = "failed"
         if self._source_face_path:
@@ -143,7 +179,7 @@ class Generator:
     self._llm.schedule_generate(prompt,
                                 callback_description,
                                 response_format=None,
-                                max_tokens=1024,
+                                max_tokens=256,
                                 thinking=True)
 
 
@@ -155,6 +191,8 @@ class Generator:
       if isinstance(response, dict) and "error" in response:
         logging.error(f"Error generating voice description: {response['error']}")
         self._timestamps[step] = "failed"
+        self._timestamps["dialect"] = "failed"
+        self._timestamps["phrases"] = "failed"
         self._timestamps["image"] = "failed"
         self._timestamps["video"] = "failed"
         if self._source_face_path:
@@ -171,13 +209,82 @@ class Generator:
       logging.info(f"Voice description generated successfully! Saved log to {self._folder}.")
       print(f"Voice Description:\n{self._voice_description}\n")
       logging.info("Starting image generation...")
-      self._generate_image(timestamp)
+      self._generate_dialect(timestamp)
 
     prompt = self._prompt_voice_description(self._celebrity)
     self._llm.schedule_generate(prompt,
                                 callback_voice_description,
                                 response_format=None,
-                                max_tokens=1024,
+                                max_tokens=64,
+                                thinking=True)
+
+
+  def _generate_dialect(self, timestamp: float):
+    step = f"dialect"
+    identifier = f"{timestamp:.1f}"
+
+    def callback_dialect(prompt, response):
+      if isinstance(response, dict) and "error" in response:
+        logging.error(f"Error generating dialect: {response['error']}")
+        self._timestamps[step] = "failed"
+        self._timestamps["phrases"] = "failed"
+        self._timestamps["image"] = "failed"
+        self._timestamps["video"] = "failed"
+        if self._source_face_path:
+          self._timestamps["swap"] = "failed"
+        return
+
+      self._log_to_file(step, prompt, str(response), identifier)
+      self._timestamps[step] = identifier
+      if isinstance(response, dict):
+        self._dialect = response.get("text", "")
+      else:
+        self._dialect = response
+
+      logging.info(f"Dialect generated successfully! Saved log to {self._folder}.")
+      print(f"Dialect:\n{self._dialect}\n")
+      logging.info("Starting phrases generation...")
+      self._generate_phrases(timestamp)
+
+    prompt = self._prompt_dialect(self._celebrity)
+    self._llm.schedule_generate(prompt,
+                                callback_dialect,
+                                response_format=None,
+                                max_tokens=32,
+                                thinking=True)
+
+
+  def _generate_phrases(self, timestamp: float):
+    step = f"phrases"
+    identifier = f"{timestamp:.1f}"
+
+    def callback_phrases(prompt, response):
+      if isinstance(response, dict) and "error" in response:
+        logging.error(f"Error generating phrases: {response['error']}")
+        self._timestamps[step] = "failed"
+        self._timestamps["image"] = "failed"
+        self._timestamps["video"] = "failed"
+        if self._source_face_path:
+          self._timestamps["swap"] = "failed"
+        return
+
+      self._log_to_file(step, prompt, str(response), identifier)
+      self._timestamps[step] = identifier
+      if isinstance(response, dict):
+        self._phrases = [response.get("first", ""), response.get("second", "")]
+      else:
+        self._phrases = response.text.split("\n")
+
+      logging.info(f"Phrases generated successfully! Saved log to {self._folder}.")
+      print(f"Phrases:\n{self._phrases[0]}\n{self._phrases[1]}\n")
+      logging.info("Starting image generation...")
+      self._generate_image(timestamp)
+
+    prompt = self._prompt_phrases(self._celebrity)
+    self._llm.schedule_generate(prompt,
+                                callback_phrases,
+                                response_format=FormatSentences,
+                                max_tokens=128,
                                 thinking=True)
 
 
@@ -266,8 +373,10 @@ class Generator:
           self._timestamps["swap"] = "failed"
 
     # Format the prompt with the specific sentence text
-    sentence_text = SENTENCES[index]
-    video_prompt = PROMPT_VIDEO.replace("[MESSAGE]", sentence_text).replace("[VOICE_DESCRIPTION]", self._voice_description)
+    sentence_text = self._phrases[index]
+    video_prompt = PROMPT_VIDEO.replace("[MESSAGE]", sentence_text)
+    video_prompt = video_prompt.replace("[VOICE_DESCRIPTION]", self._voice_description)
+    video_prompt = video_prompt.replace("[DIALECT]", self._dialect)
     print(f"Prompt for video {index+1}: {video_prompt}")
 
     def run_veo():
