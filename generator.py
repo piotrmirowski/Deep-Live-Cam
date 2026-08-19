@@ -176,6 +176,7 @@ class Generator:
       self._generate_voice_description(timestamp)
 
     prompt = self._prompt_description(self._celebrity)
+    print(f"Prompt Description:\n{prompt}\n")
     self._llm.schedule_generate(prompt,
                                 callback_description,
                                 response_format=None,
@@ -212,6 +213,7 @@ class Generator:
       self._generate_dialect(timestamp)
 
     prompt = self._prompt_voice_description(self._celebrity)
+    print(f"Prompt Voice Description:\n{prompt}\n")
     self._llm.schedule_generate(prompt,
                                 callback_voice_description,
                                 response_format=None,
@@ -247,6 +249,7 @@ class Generator:
       self._generate_phrases(timestamp)
 
     prompt = self._prompt_dialect(self._celebrity)
+    print(f"Prompt Dialect:\n{prompt}\n")
     self._llm.schedule_generate(prompt,
                                 callback_dialect,
                                 response_format=None,
@@ -281,6 +284,7 @@ class Generator:
       self._generate_image(timestamp)
 
     prompt = self._prompt_phrases(self._celebrity)
+    print(f"Prompt Phrases:\n{prompt}\n")
     self._llm.schedule_generate(prompt,
                                 callback_phrases,
                                 response_format=FormatSentences,
@@ -319,6 +323,7 @@ class Generator:
           self._timestamps["swap"] = "failed"
 
     prompt = self._image_description
+    print(f"Prompt Image:\n{prompt}\n")
     self._llm.schedule_generate(prompt,
                                 callback_image,
                                 response_format={"image_size": "1K", "aspect_ratio": VIDEO_ASPECT_RATIO},
