@@ -489,10 +489,13 @@
     }
 
     // Update generated image
-    if (gen.image && gen.image !== lastGeneratorImage) {
+    if (gen.image !== lastGeneratorImage) {
       lastGeneratorImage = gen.image;
       const img = document.getElementById('generated_image');
-      if (img) img.src = gen.image + '?t=' + Date.now();
+      if (img) {
+        img.src = gen.image ? (gen.image + '?t=' + Date.now()) : '';
+        img.style.display = gen.image ? 'block' : 'none';
+      }
     }
 
     // Update video links
@@ -525,8 +528,8 @@
     // Update descriptions
     const imgDesc   = document.getElementById('gen_image_desc');
     const voiceDesc = document.getElementById('gen_voice_desc');
-    if (imgDesc   && gen.image_description   !== undefined) imgDesc.innerText   = gen.image_description;
-    if (voiceDesc && gen.voice_description   !== undefined) voiceDesc.innerText = gen.voice_description;
+    if (imgDesc)   imgDesc.innerText   = gen.image_description || '';
+    if (voiceDesc) voiceDesc.innerText = gen.voice_description || '';
 
     // Update status badge colour and text
     const genStatus = gen.status || 'idle';

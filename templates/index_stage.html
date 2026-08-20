@@ -112,6 +112,27 @@
       text-align: left;
       display: none;
     }
+
+    /* Bottom-left celebrity facts overlay (updated in real-time via generator status) */
+    #celebrity-facts {
+      position: fixed;
+      bottom: 12px;
+      left: 14px;
+      z-index: 20;
+      max-width: 500px;
+      background: rgba(0, 0, 0, 0.55);
+      color: rgba(255, 255, 255, 0.88);
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 24px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 8px 11px;
+      border-radius: 6px;
+      pointer-events: none;
+      text-align: left;
+      display: none;
+    }
   </style>
 </head>
 
@@ -126,6 +147,7 @@
 
   <div id="stage-message">{{STAGE_MESSAGE}}</div>
   <div id="live-message"></div>
+  <div id="celebrity-facts"></div>
 
 </body>
 
@@ -282,6 +304,13 @@
     var liveMsg = document.getElementById('live-message');
     liveMsg.innerText = data.live_message || '';
     liveMsg.style.display = data.live_message ? 'block' : 'none';
+
+    var factsMsg = document.getElementById('celebrity-facts');
+    if (factsMsg) {
+      var facts = (data.generator && data.generator.facts) ? data.generator.facts : '';
+      factsMsg.innerText = facts;
+      factsMsg.style.display = facts ? 'block' : 'none';
+    }
   });
 
 

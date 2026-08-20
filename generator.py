@@ -8,13 +8,20 @@ import threading
 import shutil
 import unicodedata
 import re
+import ast
+import json
 
 from generation.llm import LLM
 from generation.veo import Veo
 import deep_fake
 
 
-GENERATOR_STEPS = ["description", "voice_description", "dialect", "phrases", "image", "video", "swap"]
+GENERATOR_STEPS = ["facts", "description", "voice_description", "dialect", "phrases", "image", "video", "swap"]
+PROMPT_FACTS = (
+    "List a few distinctive facts about [CELEBRITY] that could be used in a guessing game.\n" +
+    "These can involve: what they are famous for, what they are infamous for, " +
+    "their biggest hit, their biggest flop, their catchphrase, " +
+    "their origin, their dialect and accent. Keep it within 60 words, just list the bullet points.")
 PROMPT_DESCRIPTION = (
     "You are writing a prompt for Gemini Nano Banana Pro.\n" +
     "Describe physically the following person in a very detailed manner, " +
@@ -99,10 +106,11 @@ class Generator:
     self._celebrity = ""
     self._show_title = ""
     self._source_face_path = None
+    self._facts = None
     self._image_description = None
     self._voice_description = None
     self._dialect = None
-    self._phrases = None
+    self._phrases = [None] * len(SENTENCES)
     self._image = None
     self._image_filename = None
     self._start_time = None
@@ -112,8 +120,19 @@ class Generator:
     self._swaps_completed = [None] * len(SENTENCES)
 
 
+  @property
+  def facts(self) -> str:
+    return self._facts
+
+
   def set_celebrity(self, celebrity: str) -> None:
-    self._celebrity = celebrity
+    if not self._celebrity or self._celebrity.strip().lower() != celebrity.strip().lower():
+      self.reset()
+      self._celebrity = celebrity
+
+
+  def _prompt_facts(self, celebrity: str) -> str:
+    return PROMPT_FACTS.replace("[CELEBRITY]", celebrity)
 
 
   def _prompt_description(self, celebrity: str) -> str:
@@ -144,6 +163,45 @@ class Generator:
     image_file_path = os.path.join(self._folder, f"{step}_{identifier}.png")
     PIL_image.save(image_file_path)
     return image_file_path
+
+
+  def _generate_facts(self, timestamp: float):
+    step = f"facts"
+    identifier = f"{timestamp:.1f}"
+
+    def callback_facts(prompt, response):
+      if isinstance(response, dict) and "error" in response:
+        logging.error(f"Error generating facts: {response['error']}")
+        self._timestamps[step] = "failed"
+        self._timestamps["description"] = "failed"
+        self._timestamps["voice_description"] = "failed"
+        self._timestamps["dialect"] = "failed"
+        self._timestamps["phrases"] = "failed"
+        self._timestamps["image"] = "failed"
+        self._timestamps["video"] = "failed"
+        if self._source_face_path:
+          self._timestamps["swap"] = "failed"
+        return
+
+      self._log_to_file(step, prompt, str(response), identifier)
+      self._timestamps[step] = identifier
+      if isinstance(response, dict):
+        self._facts = response.get("text", "")
+      else:
+        self._facts = response
+
+      logging.info(f"Facts generated successfully! Saved log to {self._folder}.")
+      print(f"Facts:\n{self._facts}\n")
+      logging.info("Starting description generation...")
+      self._generate_description(timestamp)
+
+    prompt = self._prompt_facts(self._celebrity)
+    print(f"Prompt Facts:\n{prompt}\n")
+    self._llm.schedule_generate(prompt,
+                                callback_facts,
+                                response_format=None,
+                                max_tokens=128,
+                                thinking=False)
 
 
   def _generate_description(self, timestamp: float):
@@ -307,8 +365,8 @@ class Generator:
 
       text = response["text"] if "text" in response else ""
       self._log_to_file(step, prompt, text, identifier)
-      self._timestamps[step] = identifier
       if "image" in response:
+        self._timestamps[step] = identifier
         filename = self._save_image(step, response["image"], identifier)
         self._image = response["image"]
         self._image_filename = filename
@@ -318,6 +376,7 @@ class Generator:
           self._generate_video_for_sentence(i, timestamp)
       else:
         logging.warning("No image data found in model response.")
+        self._timestamps[step] = "failed"
         self._timestamps["video"] = "failed"
         if self._source_face_path:
           self._timestamps["swap"] = "failed"
@@ -466,7 +525,7 @@ class Generator:
 
     # First look for timestamp in image or log or video filenames
     for filename in files:
-      m = re.search(r"(?:image|description|voice_description|video_\d+|swap_\d+)_([0-9.]+)\.(?:png|log|mp4)", filename)
+      m = re.search(r"(?:facts|image|description|voice_description|video_\d+|swap_\d+)_([0-9.]+)\.(?:png|log|mp4)", filename)
       if m:
         identifier = m.group(1)
         break
@@ -479,6 +538,22 @@ class Generator:
     else:
       self._start_time = time.time()
       identifier = f"{self._start_time:.1f}"
+
+    # Load facts
+    for filename in files:
+      if filename.startswith("facts_") and filename.endswith(".log"):
+        facts_path = os.path.join(self._folder, filename)
+        self._timestamps["facts"] = identifier
+        try:
+          with open(facts_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            if "RESPONSE:\n" in content:
+              self._facts = content.split("RESPONSE:\n", 1)[1].strip()
+            else:
+              self._facts = content.strip()
+        except Exception as e:
+          logging.error(f"Failed to read facts log: {e}")
+        break
 
     # Load image
     for filename in files:
@@ -524,6 +599,58 @@ class Generator:
           logging.error(f"Failed to read voice description log: {e}")
         break
 
+    # Load dialect
+    for filename in files:
+      if filename.startswith("dialect_") and filename.endswith(".log"):
+        dialect_path = os.path.join(self._folder, filename)
+        self._timestamps["dialect"] = identifier
+        try:
+          with open(dialect_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            if "RESPONSE:\n" in content:
+              self._dialect = content.split("RESPONSE:\n", 1)[1].strip()
+            else:
+              self._dialect = content.strip()
+        except Exception as e:
+          logging.error(f"Failed to read dialect log: {e}")
+        break
+
+    # Load phrases
+    for filename in files:
+      if filename.startswith("phrases_") and filename.endswith(".log"):
+        phrases_path = os.path.join(self._folder, filename)
+        self._timestamps["phrases"] = identifier
+        try:
+          with open(phrases_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            resp = content.split("RESPONSE:\n", 1)[1].strip() if "RESPONSE:\n" in content else content.strip()
+            parsed = None
+            try:
+              data = json.loads(resp)
+              if isinstance(data, dict):
+                parsed = [data.get("first", ""), data.get("second", "")]
+              elif isinstance(data, list):
+                parsed = [str(x) for x in data]
+            except Exception:
+              pass
+            if parsed is None:
+              try:
+                data = ast.literal_eval(resp)
+                if isinstance(data, dict):
+                  parsed = [data.get("first", ""), data.get("second", "")]
+                elif isinstance(data, list):
+                  parsed = [str(x) for x in data]
+              except Exception:
+                pass
+            if parsed is None:
+              lines = [line.strip() for line in resp.split("\n") if line.strip()]
+              parsed = [re.sub(r"^\(?\d+[\).\s\-]+", "", line).strip() for line in lines]
+            self._phrases = parsed
+            print(f"Loaded phrases from cache: {self._phrases}")
+        except Exception as e:
+          logging.error(f"Failed to read phrases log: {e}")
+        break
+
     # Load videos
     for filename in files:
       m = re.match(r"^video_(\d+)_.*\.mp4$", filename)
@@ -559,7 +686,87 @@ class Generator:
           self._copy_to_drive(v_path, idx)
 
 
+  def has_failed(self) -> bool:
+    print("Checking if generation has failed...", self._timestamps)
+    return any((self._timestamps.get(step) == "failed" or self._timestamps.get(step) == 0)
+    for step in GENERATOR_STEPS)
+
+
+  def get_first_failed_step(self) -> str | None:
+    for step in GENERATOR_STEPS:
+      if not self._source_face_path and step == "swap":
+        continue
+      if self._timestamps.get(step) == "failed" or self._timestamps.get(step) == 0:
+        return step
+    return None
+
+
+  def restart_from_step(self, step: str):
+    if step not in GENERATOR_STEPS:
+      logging.error(f"Cannot restart unknown step '{step}'.")
+      return
+
+    failed_idx = GENERATOR_STEPS.index(step)
+    for s in GENERATOR_STEPS[failed_idx:]:
+      self._timestamps[s] = 0
+
+    if failed_idx <= GENERATOR_STEPS.index("video"):
+      self._videos_completed = [None] * len(SENTENCES)
+    if failed_idx <= GENERATOR_STEPS.index("swap"):
+      self._swaps_completed = [None] * len(SENTENCES)
+
+    timestamp = self._start_time if self._start_time is not None else time.time()
+    logging.info(f"Restarting generation process for celebrity: {self._celebrity} from step: {step}")
+
+    if step == "facts":
+      self._generate_facts(timestamp)
+    elif step == "description":
+      self._generate_description(timestamp)
+    elif step == "voice_description":
+      self._generate_voice_description(timestamp)
+    elif step == "dialect":
+      self._generate_dialect(timestamp)
+    elif step == "phrases":
+      self._generate_phrases(timestamp)
+    elif step == "image":
+      self._generate_image(timestamp)
+    elif step == "video":
+      for i in range(len(SENTENCES)):
+        self._generate_video_for_sentence(i, timestamp)
+    elif step == "swap":
+      if self._source_face_path and all(v is not None for v in self._videos_completed):
+        for i in range(len(SENTENCES)):
+          self._generate_swap_for_sentence(i, self._videos_completed[i], timestamp)
+      else:
+        for i in range(len(SENTENCES)):
+          self._generate_video_for_sentence(i, timestamp)
+
+
   def generate(self, celebrity: str, show_title: str, source_face_path: str = None, sentence: int = 1):
+    # Check if this is a retry of a failed generation for the same celebrity
+    is_same_celebrity = (
+        bool(self._celebrity) and
+        self._celebrity.strip().lower() == celebrity.strip().lower()
+    )
+
+    if is_same_celebrity and self.has_failed():
+      print("Restarting failed generation for celebrity: ", self._celebrity)
+      first_failed_step = self.get_first_failed_step()
+      if first_failed_step:
+        self._show_title = show_title
+        self._sentence = sentence
+        if source_face_path and os.path.exists(source_face_path):
+          copied_source_path = os.path.join(self._folder, os.path.basename(source_face_path))
+          if os.path.abspath(source_face_path) != os.path.abspath(copied_source_path):
+            try:
+              shutil.copy(source_face_path, copied_source_path)
+            except Exception as e:
+              logging.error(f"Failed to copy source face image: {e}")
+          self._source_face_path = copied_source_path
+        logging.info(f"Restarting failed generation for '{celebrity}' from step '{first_failed_step}'...")
+        self.restart_from_step(first_failed_step)
+        return
+
     self.reset()
     self._celebrity = celebrity
     self._show_title = show_title
@@ -576,6 +783,13 @@ class Generator:
       self._folder = target_folder
       logging.info(f"Normalized celebrity folder '{self._folder}' exists. Loading from cache...")
       self._load_from_cache()
+      print("Loaded cached state for celebrity: ", self._celebrity)
+      if self.has_failed():
+        print("Cached generation has failed. Restarting from failed step...")
+        first_failed_step = self.get_first_failed_step()
+        if first_failed_step:
+          logging.info(f"Cached generation has failed step '{first_failed_step}'. Restarting from that step...")
+          self.restart_from_step(first_failed_step)
       return
 
     self._folder = target_folder
@@ -595,15 +809,17 @@ class Generator:
 
     self._start_time = time.time()
     logging.info(f"Starting generation process for celebrity: {celebrity} in folder: {self._folder}")
-    self._generate_description(self._start_time)
+    self._generate_facts(self._start_time)
 
 
   def is_done(self) -> bool:
     if self._start_time is None:
       return True
+    if self.has_failed():
+      return True
     if self._source_face_path:
-      return self._timestamps["swap"] != 0 or self._timestamps["swap"] == "failed"
-    return self._timestamps["video"] != 0 or self._timestamps["video"] == "failed"
+      return self._timestamps.get("swap", 0) != 0
+    return self._timestamps.get("video", 0) != 0
 
 
 def main():

@@ -352,6 +352,7 @@ def run_flask(face_swapper, opts):
       "steps": steps_progress,
       "celebrity": generator_instance._celebrity,
       "show_title": generator_instance._show_title,
+      "facts": generator_instance.facts or "",
       "image_description": generator_instance._image_description or "",
       "voice_description": generator_instance._voice_description or "",
       "image": _get_web_path(generator_instance._image_filename),
