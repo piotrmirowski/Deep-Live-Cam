@@ -20,6 +20,7 @@ keep_fps = True
 keep_audio = True
 keep_frames = False
 many_faces = False
+crop_to_face = False
 map_faces = False
 color_correction = False  # New global variable for color correction toggle
 nsfw_filter = False

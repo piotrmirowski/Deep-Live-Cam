@@ -310,6 +310,22 @@ def run_flask(face_swapper, opts):
     return str("background_removal_off")
 
 
+  @app.route("/crop_to_face_on")
+  @cross_origin(supports_credentials=True)
+  def crop_to_face_on():
+    nonlocal face_swapper
+    face_swapper.set_crop_to_face(True)
+    return str("crop_to_face_on")
+
+
+  @app.route("/crop_to_face_off")
+  @cross_origin(supports_credentials=True)
+  def crop_to_face_off():
+    nonlocal face_swapper
+    face_swapper.set_crop_to_face(False)
+    return str("crop_to_face_off")
+
+
   def _get_web_path(file_path):
     if not file_path:
       return None

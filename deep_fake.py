@@ -73,6 +73,9 @@ class FaceSwapper(object):
     self.current_deepfake = {"image": None, "byte_string": None, "timestamp": 0, "active": False}
     self.current_faces = []
     self.target_embedding = None
+    self.target_face = None
+    self._last_crop_bbox = None
+    self._missing_face_frames = 0
     self.camera_streaming = True
     self.search_image = None
     self.alex_server = getattr(opts, 'alex_server', '')
@@ -97,6 +100,7 @@ class FaceSwapper(object):
     # Initialize the rembg session
     self.rembg_session = rembg.new_session()
     self.background_removal = False
+    self.crop_to_face = False
 
     # Start the deep fake processing
     self._thread = None
@@ -114,6 +118,7 @@ class FaceSwapper(object):
     modules.globals.keep_audio = False
     modules.globals.keep_frames = False
     modules.globals.many_faces = False
+    modules.globals.crop_to_face = False
     modules.globals.video_encoder = "libx264"
     modules.globals.video_quality = 18
     modules.globals.max_memory = opts.max_memory
@@ -129,10 +134,21 @@ class FaceSwapper(object):
 
   def reset_target_embedding(self):
     self.target_embedding = None
+    self.target_face = None
+    self._last_crop_bbox = None
+    self._missing_face_frames = 0
 
 
   def background_removal(self, value: bool):
     self.background_removal = value
+
+
+  def set_crop_to_face(self, value: bool):
+    self.crop_to_face = value
+    modules.globals.crop_to_face = value
+    if not value:
+      self._last_crop_bbox = None
+      self._missing_face_frames = 0
 
 
   def many_faces(self, value: bool):
@@ -150,7 +166,10 @@ class FaceSwapper(object):
       if not frame_processor.pre_check():
         utils.log("Could not pre-check frame_processor", "error")
         exit(1)
-    core.limit_resources()
+    print(modules.globals.execution_providers)
+    if ("CoreMLExecutionProvider" not in modules.globals.execution_providers and
+        "CPUExecutionProvider" not in modules.globals.execution_providers):
+      core.limit_resources()
 
 
   def status(self):
@@ -158,6 +177,7 @@ class FaceSwapper(object):
             "faces": self.current_faces,
             "active": self.current_deepfake["active"],
             "background_removal": self.background_removal,
+            "crop_to_face": self.crop_to_face,
             "camera_streaming": self.camera_streaming,
             "search_image": self.search_image,
             "alex_server": getattr(self, 'alex_server', ''),
@@ -254,6 +274,7 @@ class FaceSwapper(object):
 
     # Early exit if no source face is given.
     if not source_face:
+      self.target_face = None
       utils.log("No source face found.", "error")
       return temp_frame
 
@@ -264,10 +285,12 @@ class FaceSwapper(object):
 
     # Early exit if no target face is found.
     if not many_faces:
+      self.target_face = None
       utils.log("No target faces found.", "error")
       return temp_frame
 
     if modules.globals.many_faces:
+      self.target_face = None
       for target_face in many_faces:
         temp_frame = swap_face(source_face, target_face, temp_frame)
     else:
@@ -285,9 +308,114 @@ class FaceSwapper(object):
             best_sim = similarity
             best_face = face
         target_face = best_face
+      self.target_face = target_face
       temp_frame = swap_face(source_face, target_face, temp_frame)
 
     return temp_frame
+
+
+  def _crop_to_face(self, fake_image: Frame, faces=None, margin: float = -0.2) -> Frame:
+    """Crop the frame to the detected face bounding box when in single-face mode and crop_to_face is enabled."""
+    if modules.globals.many_faces or not (self.crop_to_face or getattr(modules.globals, 'crop_to_face', False)):
+      return fake_image
+    if fake_image is None:
+      return fake_image
+
+    h, w = fake_image.shape[:2]
+    if h <= 0 or w <= 0:
+      return fake_image
+
+    bbox = None
+    if self.target_face is not None and 'bbox' in self.target_face:
+      bbox = self.target_face['bbox']
+    elif faces:
+      if isinstance(faces, list) and len(faces) > 0 and 'bbox' in faces[0]:
+        bbox = faces[0]['bbox']
+      elif isinstance(faces, dict) or hasattr(faces, '__getitem__'):
+        try:
+          bbox = faces['bbox']
+        except (KeyError, IndexError, TypeError):
+          bbox = None
+    elif self.current_faces and len(self.current_faces) > 0:
+      bbox = self.current_faces[0].get('bbox')
+
+    new_crop_bbox = None
+    if bbox is not None:
+      x_min, y_min, x_max, y_max = [float(v) for v in bbox[:4]]
+      face_w = x_max - x_min
+      face_h = y_max - y_min
+      if face_w > 1 and face_h > 1:
+        cx = (x_min + x_max) / 2.0
+        cy = (y_min + y_max) / 2.0
+
+        # Add margin around the face bounding box so the full head fits
+        crop_w = face_w * (1.0 + margin)
+        crop_h = face_h * (1.0 + margin)
+
+        # Expand to match the output frame aspect ratio
+        target_aspect = float(w) / float(h)
+        if crop_w / crop_h < target_aspect:
+          crop_w = crop_h * target_aspect
+        else:
+          crop_h = crop_w / target_aspect
+
+        # Ensure crop dimensions do not exceed frame dimensions
+        if crop_w > w:
+          crop_w = float(w)
+          crop_h = crop_w / target_aspect
+        if crop_h > h:
+          crop_h = float(h)
+          crop_w = crop_h * target_aspect
+
+        # Center crop window on (cx, cy) and shift inside frame bounds
+        x1 = cx - crop_w / 2.0
+        y1 = cy - crop_h / 2.0
+        if x1 < 0:
+          x1 = 0.0
+        if y1 < 0:
+          y1 = 0.0
+        if x1 + crop_w > w:
+          x1 = max(0.0, w - crop_w)
+        if y1 + crop_h > h:
+          y1 = max(0.0, h - crop_h)
+
+        new_crop_bbox = [x1, y1, x1 + crop_w, y1 + crop_h]
+
+    if new_crop_bbox is not None:
+      self._missing_face_frames = 0
+      if self._last_crop_bbox is None:
+        self._last_crop_bbox = new_crop_bbox
+      else:
+        old_w = self._last_crop_bbox[2] - self._last_crop_bbox[0]
+        old_h = self._last_crop_bbox[3] - self._last_crop_bbox[1]
+        new_w = new_crop_bbox[2] - new_crop_bbox[0]
+        new_h = new_crop_bbox[3] - new_crop_bbox[1]
+        if (old_w != new_w or old_h != new_h) or self._last_crop_bbox != new_crop_bbox:
+          self._last_crop_bbox = [
+              0.5 * old_c + 0.5 * new_c
+              for old_c, new_c in zip(self._last_crop_bbox, new_crop_bbox)
+          ]
+    else:
+      self._missing_face_frames += 1
+      if self._last_crop_bbox is None:
+        return fake_image
+      if self._missing_face_frames >= 2:
+        full_image_bbox = [0.0, 0.0, float(w), float(h)]
+        self._last_crop_bbox = [
+            0.5 * old_c + 0.5 * full_c
+            for old_c, full_c in zip(self._last_crop_bbox, full_image_bbox)
+        ]
+
+    ix1 = max(0, int(round(self._last_crop_bbox[0])))
+    iy1 = max(0, int(round(self._last_crop_bbox[1])))
+    ix2 = min(w, int(round(self._last_crop_bbox[2])))
+    iy2 = min(h, int(round(self._last_crop_bbox[3])))
+
+    if ix2 <= ix1 or iy2 <= iy1:
+      return fake_image
+
+    cropped = fake_image[iy1:iy2, ix1:ix2]
+    return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
 
   def _run_deep_fake_loop(self) -> None:
@@ -340,9 +468,12 @@ class FaceSwapper(object):
         fake_image = self._process_frame(source_face, fake_image)
       else:
         self.target_embedding = None
+        self.target_face = None
         many_faces = get_many_faces(fake_image)
         self._store_face_stats(many_faces)
       delta_t_swap = time.time() - t4
+
+      fake_image = self._crop_to_face(fake_image, self.current_faces)
 
       # Convert the image to RGB format to display it with Tkinter and store it.
       self.current_deepfake["image"] = fake_image

@@ -40,6 +40,17 @@
         </td>
         <td>
           <label class="switch">
+            <input type="checkbox" id="crop_face_button" width=96px onclick="toggleCropFace()">
+            <span class="slider round"></span>
+          </label>
+        </td>
+        <td align="left" width=96px>
+          <label class="caption" id="crop_face_button_state" align="left">
+            Full frame
+          </label>
+        </td>
+        <td>
+          <label class="switch">
             <input type="checkbox" id="bg_remove_button" width=96px onclick="toggleBgRemove()">
             <span class="slider round"></span>
           </label>
@@ -211,6 +222,46 @@
       switchManyFaces(true);
     } else {
       switchSingleFace(true);
+    }
+  };
+
+
+  // Toggle for crop to face
+  function switchCropFaceOn(force = false) {
+    if ((force == true) || (crop_face_button.checked == false)) {
+      sendGetQuery("crop_to_face_on");
+      showCropFaceOn();
+    }
+  };
+  function switchCropFaceOff(force = false) {
+    if ((force == true) || (crop_face_button.checked == true)) {
+      sendGetQuery("crop_to_face_off");
+      showCropFaceOff();
+    }
+  };
+  function showCropFaceOff() {
+    if (crop_face_button.checked == true) {
+      crop_face_button.checked = false;
+    }
+    const caption = document.getElementById('crop_face_button_state');
+    if (caption.innerText != "Full frame") {
+      caption.innerText = "Full frame";
+    }
+  };
+  function showCropFaceOn() {
+    if (crop_face_button.checked == false) {
+      crop_face_button.checked = true;
+    }
+    const caption = document.getElementById('crop_face_button_state');
+    if (caption.innerText != "Crop face") {
+      caption.innerText = "Crop face";
+    }
+  };
+  function toggleCropFace() {
+    if (crop_face_button.checked == true) {
+      switchCropFaceOn(true);
+    } else {
+      switchCropFaceOff(true);
     }
   };
 
@@ -437,6 +488,9 @@
     }
     if ("many_faces" in status) {
       status["many_faces"] ? showManyFaces() : showSingleFace();
+    }
+    if ("crop_to_face" in status) {
+      status["crop_to_face"] ? showCropFaceOn() : showCropFaceOff();
     }
     if ("background_removal" in status) {
       status["background_removal"] ? showBgRemove() : showBgKept();
