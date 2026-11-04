@@ -315,7 +315,7 @@ class FaceSwapper(object):
 
 
   def _crop_to_face(self, fake_image: Frame, faces=None, margin: float = -0.2) -> Frame:
-    """Crop the frame to the detected face bounding box when in single-face mode and crop_to_face is enabled."""
+    """Align and crop the frame using a 4-DoF similarity transform on the eyes and nose keypoints."""
     if modules.globals.many_faces or not (self.crop_to_face or getattr(modules.globals, 'crop_to_face', False)):
       return fake_image
     if fake_image is None:
@@ -325,97 +325,67 @@ class FaceSwapper(object):
     if h <= 0 or w <= 0:
       return fake_image
 
-    bbox = None
-    if self.target_face is not None and 'bbox' in self.target_face:
-      bbox = self.target_face['bbox']
+    kps = None
+    if self.target_face is not None and 'kps' in self.target_face:
+      kps = self.target_face['kps']
     elif faces:
-      if isinstance(faces, list) and len(faces) > 0 and 'bbox' in faces[0]:
-        bbox = faces[0]['bbox']
+      if isinstance(faces, list) and len(faces) > 0 and 'kps' in faces[0]:
+        kps = faces[0]['kps']
       elif isinstance(faces, dict) or hasattr(faces, '__getitem__'):
         try:
-          bbox = faces['bbox']
+          kps = faces['kps']
         except (KeyError, IndexError, TypeError):
-          bbox = None
+          kps = None
     elif self.current_faces and len(self.current_faces) > 0:
-      bbox = self.current_faces[0].get('bbox')
+      kps = self.current_faces[0].get('kps')
 
-    new_crop_bbox = None
-    if bbox is not None:
-      x_min, y_min, x_max, y_max = [float(v) for v in bbox[:4]]
-      face_w = x_max - x_min
-      face_h = y_max - y_min
-      if face_w > 1 and face_h > 1:
-        cx = (x_min + x_max) / 2.0
-        cy = (y_min + y_max) / 2.0
+    new_matrix = None
+    if kps is not None and len(kps) >= 3:
+      # kps[0]: left eye, kps[1]: right eye, kps[2]: nose tip
+      src_pts = np.array([kps[0], kps[1], kps[2]], dtype=np.float32)
+      eye_dist = np.linalg.norm(src_pts[1] - src_pts[0])
+      if eye_dist > 1.0:
+        scale_factor = max(0.2, 1.0 + margin)
+        target_eye_dist = (0.40 * float(h)) / scale_factor
+        nose_offset_y = 0.57 * target_eye_dist
 
-        # Add margin around the face bounding box so the full head fits
-        crop_w = face_w * (1.0 + margin)
-        crop_h = face_h * (1.0 + margin)
+        cx = 0.5 * float(w)
+        mid_eye_y = 0.33 * float(h) - 0.5 * nose_offset_y
+        nose_y = 0.33 * float(h) + 0.5 * nose_offset_y
 
-        # Expand to match the output frame aspect ratio
-        target_aspect = float(w) / float(h)
-        if crop_w / crop_h < target_aspect:
-          crop_w = crop_h * target_aspect
-        else:
-          crop_h = crop_w / target_aspect
+        dst_pts = np.array([
+            [cx - 0.5 * target_eye_dist, mid_eye_y],
+            [cx + 0.5 * target_eye_dist, mid_eye_y],
+            [cx, nose_y],
+        ], dtype=np.float32)
 
-        # Ensure crop dimensions do not exceed frame dimensions
-        if crop_w > w:
-          crop_w = float(w)
-          crop_h = crop_w / target_aspect
-        if crop_h > h:
-          crop_h = float(h)
-          crop_w = crop_h * target_aspect
+        est_matrix, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts)
+        if est_matrix is not None:
+          new_matrix = est_matrix.astype(np.float32)
 
-        # Center crop window on (cx, cy) and shift inside frame bounds
-        x1 = cx - crop_w / 2.0
-        y1 = cy - crop_h / 2.0
-        if x1 < 0:
-          x1 = 0.0
-        if y1 < 0:
-          y1 = 0.0
-        if x1 + crop_w > w:
-          x1 = max(0.0, w - crop_w)
-        if y1 + crop_h > h:
-          y1 = max(0.0, h - crop_h)
-
-        new_crop_bbox = [x1, y1, x1 + crop_w, y1 + crop_h]
-
-    if new_crop_bbox is not None:
+    if new_matrix is not None:
       self._missing_face_frames = 0
-      if self._last_crop_bbox is None:
-        self._last_crop_bbox = new_crop_bbox
+      if self._last_crop_bbox is None or not isinstance(self._last_crop_bbox, np.ndarray) or self._last_crop_bbox.shape != (2, 3):
+        self._last_crop_bbox = new_matrix
       else:
-        old_w = self._last_crop_bbox[2] - self._last_crop_bbox[0]
-        old_h = self._last_crop_bbox[3] - self._last_crop_bbox[1]
-        new_w = new_crop_bbox[2] - new_crop_bbox[0]
-        new_h = new_crop_bbox[3] - new_crop_bbox[1]
-        if (old_w != new_w or old_h != new_h) or self._last_crop_bbox != new_crop_bbox:
-          self._last_crop_bbox = [
-              0.5 * old_c + 0.5 * new_c
-              for old_c, new_c in zip(self._last_crop_bbox, new_crop_bbox)
-          ]
+        if not np.allclose(self._last_crop_bbox, new_matrix):
+          self._last_crop_bbox = 0.5 * self._last_crop_bbox + 0.5 * new_matrix
     else:
       self._missing_face_frames += 1
-      if self._last_crop_bbox is None:
+      if self._last_crop_bbox is None or not isinstance(self._last_crop_bbox, np.ndarray) or self._last_crop_bbox.shape != (2, 3):
         return fake_image
       if self._missing_face_frames >= 2:
-        full_image_bbox = [0.0, 0.0, float(w), float(h)]
-        self._last_crop_bbox = [
-            0.5 * old_c + 0.5 * full_c
-            for old_c, full_c in zip(self._last_crop_bbox, full_image_bbox)
-        ]
+        identity_matrix = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        self._last_crop_bbox = 0.5 * self._last_crop_bbox + 0.5 * identity_matrix
 
-    ix1 = max(0, int(round(self._last_crop_bbox[0])))
-    iy1 = max(0, int(round(self._last_crop_bbox[1])))
-    ix2 = min(w, int(round(self._last_crop_bbox[2])))
-    iy2 = min(h, int(round(self._last_crop_bbox[3])))
-
-    if ix2 <= ix1 or iy2 <= iy1:
-      return fake_image
-
-    cropped = fake_image[iy1:iy2, ix1:ix2]
-    return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+    return cv2.warpAffine(
+        fake_image,
+        self._last_crop_bbox,
+        (w, h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(0, 0, 0)
+    )
 
 
   def _run_deep_fake_loop(self) -> None:
